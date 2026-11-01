@@ -14,7 +14,7 @@ from data import make_posts
 def workdir(tmp_path, monkeypatch, now):
     monkeypatch.chdir(tmp_path)
     cfg = tmp_path / "config.yaml"
-    cfg.write_text(yaml.safe_dump({"db_path": str(tmp_path / "t.db")}))
+    cfg.write_text(yaml.safe_dump({"db_path": str(tmp_path / "t.db"), "backend": "api"}))
     data = tmp_path / "posts.jsonl"
     data.write_text("\n".join(
         json.dumps({"id": p.id, "title": p.title, "body": p.body, "community": p.community, "url": p.url,
@@ -33,7 +33,7 @@ def test_init_import_estimate_stats_and_empty_report(workdir, capsys):
 
     main(["--config", cfg, "extract", "--dry-run"])
     out = capsys.readouterr().out
-    assert "22 posts, model claude-opus-5-5, rough estimate ~$" in out
+    assert "22 posts, model claude-haiku-5-5, rough estimate ~$" in out
 
     with pytest.raises(SystemExit) as e:  # spend cap refuses before any API call is made
         main(["--config", cfg, "extract", "--max-usd", "0.001"])
@@ -58,3 +58,23 @@ def test_web_collect_requires_matching_source(workdir):
 def test_missing_config_file_is_a_clear_error(tmp_path):
     with pytest.raises(FileNotFoundError):
         main(["--config", str(tmp_path / "nope.yaml"), "stats"])
+
+
+def test_claude_code_backend_dry_run_says_no_api_charges(workdir, capsys):
+    tmp, cfg, data = workdir
+    yaml_cfg = yaml.safe_load(open(cfg)); yaml_cfg["backend"] = "claude_code"
+    open(cfg, "w").write(yaml.safe_dump(yaml_cfg))
+    main(["--config", cfg, "init"])
+    main(["--config", cfg, "collect", "import", data])
+    capsys.readouterr()
+    main(["--config", cfg, "extract", "--dry-run"])
+    out = capsys.readouterr().out
+    assert "22 posts in ~4 `claude -p` calls" in out and "No API charges" in out
+
+
+def test_default_config_targets_the_two_given_subreddits_and_haiku():
+    from painpoint.config import load_config
+    c = load_config()
+    assert c["reddit"]["subreddits"] == ["SaaS", "SideProject"]
+    assert c["backend"] == "claude_code" and c["cc"]["models"]["extract"] == "haiku" and c["cc"]["batch_size"] == 6
+    assert c["models"]["extract"] == "claude-haiku-5-5" and c["llm"]["use_fallbacks"] == "auto"

@@ -10,11 +10,26 @@ import yaml
 
 DEFAULTS: dict[str, Any] = {
     "db_path": "painpoint.db",
-    # Models. Extraction runs once per post, so it dominates cost -- see README "Cost".
+    # claude_code: run the Claude steps through your logged-in Claude Code (`claude -p`), no per-token billing.
+    # api:         call the Anthropic API directly (needs ANTHROPIC_API_KEY, billed per token).
+    "backend": "claude_code",
+    # Models for the `api` backend. Extraction runs once per post, so a small model keeps it cheap.
     "models": {
-        "extract": "claude-opus-5-5",
+        "extract": "claude-haiku-5-5",
         "solutions": "claude-opus-5-5",
         "merge": "claude-opus-5-5",    # one call per ~300 cluster labels, so cheap
+    },
+    # Settings for the `claude_code` backend.
+    "cc": {
+        "command": "claude",
+        "models": {"extract": "haiku", "merge": "sonnet", "solutions": "sonnet"},  # aliases = latest of each
+        "effort": "low",               # extraction
+        "effort_hard": "medium",       # merge + solution check
+        "batch_size": 6,               # posts per `claude -p` call. Measured: 12 skipped a clear pain post, 6 and 3 did not
+        "batch_chars": 40000,          # also cap a batch by total characters
+        "workers": 2,                  # parallel `claude -p` processes; keep low to respect subscription limits
+        "timeout_s": 600,
+        "strip_api_key_env": True,     # remove ANTHROPIC_API_KEY from the child so your subscription is used
     },
     "llm": {
         "extract_effort": "low",       # low | medium | high | xhigh | max
@@ -26,9 +41,9 @@ DEFAULTS: dict[str, Any] = {
         "max_post_chars": 8000,        # longer posts are cut (and counted in the run summary)
         "max_search_turns": 6,         # pause_turn continuations per solution check
         "max_web_searches": 6,         # web_search max_uses per solution check
-        # Server-side refusal fallback (recommended for claude-opus-5-5 on the Claude API).
+        # Server-side refusal fallback (api backend only). "auto" = on for models that support it (not Haiku 5.5).
         # Set false for Bedrock/Vertex/Foundry or if `painpoint doctor` reports a 400 about it.
-        "use_fallbacks": True,
+        "use_fallbacks": "auto",
     },
     # $ per million tokens [input, output]; used ONLY for the --dry-run cost estimate.
     "prices_per_mtok": {
@@ -37,7 +52,7 @@ DEFAULTS: dict[str, Any] = {
         "claude-haiku-5-5": [0.10, 0.50],
     },
     "reddit": {
-        "subreddits": ["SaaS", "SideProject", "microsaas", "startups"],
+        "subreddits": ["SaaS", "SideProject"],
         "listing": "top",              # top | hot | new | controversial
         "time_filter": "month",        # hour|day|week|month|year|all (top/controversial only)
         "limit": 100,                  # posts per subreddit

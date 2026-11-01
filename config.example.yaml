@@ -3,21 +3,29 @@
 
 db_path: painpoint.db
 
-models:
-  # Extraction runs once per post and dominates cost. Check a 100-post sample on a cheaper model before
-  # committing: claude-sonnet-5-5 (~half the price) or claude-haiku-5-5 (~40x cheaper) -- see README "Cost".
-  extract: claude-opus-5-5
+# claude_code = run the Claude steps through your logged-in Claude Code (`claude -p`): no per-token billing,
+#               it counts toward your subscription's usage limits. Run `claude` once to sign in.
+# api         = call the Anthropic API directly (needs ANTHROPIC_API_KEY, billed per token).
+backend: claude_code
+
+cc:                       # settings for backend: claude_code
+  models: {extract: haiku, merge: sonnet, solutions: sonnet}   # aliases always mean the latest of each
+  batch_size: 6           # posts per call; 12 missed a clear pain post in testing, 6 and 3 did not
+  workers: 2              # parallel `claude -p` processes; raise carefully, subscriptions have rolling limits
+
+models:                   # settings for backend: api
+  extract: claude-haiku-5-5
   solutions: claude-opus-5-5
   merge: claude-opus-5-5
 
 llm:
   workers: 4
-  use_fallbacks: true   # set false on Bedrock/Vertex/Foundry, or if `painpoint doctor` complains about it
+  use_fallbacks: auto   # api backend: on for models that support it (not Haiku 5.5); false on Bedrock/Vertex/Foundry
 
 reddit:
   # Uses the official API through PRAW. Needs REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET / REDDIT_USER_AGENT.
   # Check Reddit's Data API terms and your access before using the data commercially.
-  subreddits: [SaaS, SideProject, microsaas, startups]   # add niche/industry subreddits where your buyers complain
+  subreddits: [SaaS, SideProject]   # general founder/builder communities; add more any time
   listing: top
   time_filter: month
   limit: 100

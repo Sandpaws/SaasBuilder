@@ -12,6 +12,12 @@ from .config import load_config
 
 
 def _llm(cfg):
+    if cfg["backend"] == "claude_code":
+        from .cc_backend import ClaudeCodeLLM
+
+        return ClaudeCodeLLM(cfg)
+    if cfg["backend"] != "api":
+        sys.exit(f"unknown backend {cfg['backend']!r}; use 'claude_code' or 'api'")
     import anthropic
 
     from .llm import LLM
@@ -62,28 +68,39 @@ def cmd_collect(args, cfg):
 
 
 def cmd_extract(args, cfg):
-    from .extract import estimate_cost, run_extraction
+    from .extract import estimate_cost, make_batches, run_extraction
 
     conn = _conn(cfg)
     retry = ("error", "truncated") if args.retry_errors else ()
-    rows = db.pending_posts(conn, retry, args.limit)
+    rows = [dict(r) for r in db.pending_posts(conn, retry, args.limit)]
     if not rows:
         print("nothing to extract.")
         return
-    est = estimate_cost(rows, cfg)
-    cost = f"~${est['usd']:.2f}" if est["usd"] is not None else "unknown (no price configured)"
-    print(f"{est['posts']} posts, model {est['model']}, rough estimate {cost} "
-          f"(~{est['input_tokens']:,} in / ~{est['output_tokens']:,} out tokens)")
+    est = estimate_cost([dict(r) for r in rows], cfg)
+    if cfg["backend"] == "claude_code":
+        cc = cfg["cc"]
+        calls = len(make_batches(rows, cc["batch_size"], cc["batch_chars"], cfg["llm"]["max_post_chars"]))
+        print(f"{len(rows)} posts in ~{calls} `{cc['command']} -p` calls (model alias '{cc['models']['extract']}', "
+              f"~{est['input_tokens']:,} in / ~{est['output_tokens']:,} out tokens). No API charges: this counts "
+              "toward your Claude subscription usage limits. If you hit them the run stops and can be resumed.")
+        if args.max_usd is not None:
+            print("note: --max-usd only applies to the api backend and is ignored here.")
+    else:
+        cost = f"~${est['usd']:.2f}" if est["usd"] is not None else "unknown (no price configured)"
+        print(f"{est['posts']} posts, model {est['model']}, rough estimate {cost} "
+              f"(~{est['input_tokens']:,} in / ~{est['output_tokens']:,} out tokens)")
     if args.dry_run:
         return
-    if args.max_usd is not None and est["usd"] is not None and est["usd"] > args.max_usd:
+    if (cfg["backend"] == "api" and args.max_usd is not None and est["usd"] is not None
+            and est["usd"] > args.max_usd):
         sys.exit(f"estimate exceeds --max-usd {args.max_usd}; lower --limit, change the model, or raise the cap.")
     s = run_extraction(conn, _llm(cfg), cfg, args.limit, args.retry_errors, progress=print)
+    extra = f" | list-price value ${s.notional_usd:.3f} (not billed on a subscription)" if s.notional_usd else ""
     print(f"done: {s.ok} ok ({s.pain} pain points, {s.promo} self-promo), {s.refused} refused, "
           f"{s.cut_off} cut off, {s.errors} errors | {s.inputs_truncated} long posts shortened, "
-          f"{s.quotes_dropped} unverifiable quotes dropped | tokens in/out {s.input_tokens:,}/{s.output_tokens:,}")
+          f"{s.quotes_dropped} unverifiable quotes dropped | tokens in/out {s.input_tokens:,}/{s.output_tokens:,}{extra}")
     if s.aborted:
-        sys.exit(f"ABORTED: {s.aborted}")
+        sys.exit(f"{s.aborted}\nProgress is saved; re-run `painpoint extract` to continue where it stopped.")
 
 
 def cmd_cluster(args, cfg):
@@ -205,7 +222,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         args.fn(args, cfg)
     except FatalLLMError as exc:
-        sys.exit(f"API error that will repeat for every request: {exc}")
+        sys.exit(f"stopped: {exc}\nProgress so far is saved; fix the cause and re-run the same command.")
 
 
 if __name__ == "__main__":

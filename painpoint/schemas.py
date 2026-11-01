@@ -66,6 +66,14 @@ class PainExtraction(BaseModel):
     )
 
 
+class IndexedExtraction(PainExtraction):
+    n: int = Field(description="The n attribute of the post this entry describes (copy it exactly).")
+
+
+class BatchExtraction(BaseModel):
+    results: list[IndexedExtraction] = Field(description="Exactly one entry per post, in any order.")
+
+
 class MergeGroups(BaseModel):
     groups: list[list[int]] = Field(
         description="Each inner list holds the numbers of 2+ labels that describe the SAME underlying problem."

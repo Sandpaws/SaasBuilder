@@ -19,6 +19,8 @@ from .schemas import MergeGroups, PainExtraction, SolutionCheck
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 WEB_SEARCH_TOOL = "web_search_20260209"
+# Models for which the Claude API offers `fallbacks: "default"`. Haiku 5.5 does not.
+FALLBACK_MODELS = {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
 
 
 class FatalLLMError(RuntimeError):
@@ -57,8 +59,39 @@ def _same_site(a: str, b: str) -> bool:
     return bool(a and b) and (a == b or a.endswith("." + b) or b.endswith("." + a))
 
 
+def sanitize_groups(groups: list[list[int]], n_labels: int) -> list[list[int]]:
+    """Keep only valid, unused label numbers; drop groups that end up with fewer than two."""
+    used: set[int] = set()
+    out = []
+    for group in groups:
+        clean = []
+        for i in group:
+            if 0 <= i < n_labels and i not in used:
+                used.add(i)
+                clean.append(i)
+        if len(clean) >= 2:
+            out.append(clean)
+    return out
+
+
+def finalize_solution_check(parsed: dict, seen_urls: list[str]) -> dict:
+    """Drop products whose URL domain was not in the real search results; cap unsupported saturation scores."""
+    allowed = {_domain(u) for u in seen_urls}
+    parsed["solutions"] = [s for s in parsed["solutions"] if any(_same_site(_domain(s["url"]), a) for a in allowed)]
+    parsed["saturation"] = max(0, min(10, int(parsed["saturation"])))
+    if not parsed["solutions"] and parsed["saturation"] > 2:
+        # A high saturation score with no verifiable product behind it is not credible.
+        parsed["saturation"] = 2
+        parsed["confidence"] = "low"
+    return parsed
+
+
 @dataclass
 class LLM:
+    """Anthropic API backend (billed per token)."""
+
+    batch_size = 1  # one post per request
+
     client: Any
     cfg: dict
     usage: dict = field(default_factory=lambda: {"input": 0, "output": 0})
@@ -70,11 +103,17 @@ class LLM:
         self._extract_schema = anthropic.transform_schema(PainExtraction)
         self._solution_schema = anthropic.transform_schema(SolutionCheck)
         self._merge_schema = anthropic.transform_schema(MergeGroups)
+        self.workers = self.llm_cfg["workers"]
+        self.batch_chars = 0
 
     # ------------------------------------------------------------ plumbing
 
+    def _use_fallbacks(self, model: str) -> bool:
+        setting = self.llm_cfg["use_fallbacks"]
+        return model in FALLBACK_MODELS if setting == "auto" else bool(setting)
+
     def _create(self, **kwargs):
-        if self.llm_cfg["use_fallbacks"]:
+        if self._use_fallbacks(kwargs["model"]):
             return self.client.beta.messages.create(betas=[FALLBACK_BETA], fallbacks="default", **kwargs)
         return self.client.messages.create(**kwargs)
 
@@ -93,6 +132,9 @@ class LLM:
         return f"{type(exc).__name__}: {getattr(exc, 'message', None) or exc}"
 
     # ------------------------------------------------------------ extraction
+
+    def extract_batch(self, posts: list[dict]) -> list[ExtractResult]:
+        return [self.extract_post(p) for p in posts]
 
     def extract_post(self, post: dict) -> ExtractResult:
         text, truncated = render_post(post, self.llm_cfg["max_post_chars"])
@@ -153,17 +195,7 @@ class LLM:
             parsed = MergeGroups.model_validate_json(self._text(resp))
         except ValueError as exc:
             return MergeResult("error", error=f"bad structured output: {exc}"[:300])
-        used: set[int] = set()
-        groups = []
-        for group in parsed.groups:
-            clean = []
-            for i in group:
-                if 0 <= i < len(labels) and i not in used:  # ignore out-of-range or reused numbers
-                    used.add(i)
-                    clean.append(i)
-            if len(clean) >= 2:
-                groups.append(clean)
-        return MergeResult("ok", groups)
+        return MergeResult("ok", sanitize_groups(parsed.groups, len(labels)))
 
     # ------------------------------------------------------------ solution check
 
@@ -229,14 +261,5 @@ class LLM:
         except (anthropic.APIStatusError, anthropic.APIConnectionError, ValueError) as exc:
             return SolutionResult("error", error=self._describe(exc)[:300])
 
-        allowed = {_domain(u) for u in seen_urls}
-        verified = [
-            s for s in parsed["solutions"] if any(_same_site(_domain(s["url"]), a) for a in allowed)
-        ]
-        parsed["solutions"] = verified
-        parsed["saturation"] = max(0, min(10, int(parsed["saturation"])))
-        if not verified and parsed["saturation"] > 2:
-            # A high saturation score with no verifiable product behind it is not credible.
-            parsed["saturation"] = 2
-            parsed["confidence"] = "low"
+        parsed = finalize_solution_check(parsed, seen_urls)
         return SolutionResult("ok", data=parsed, urls_seen=len(set(seen_urls)))

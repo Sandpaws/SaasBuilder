@@ -32,8 +32,14 @@ too much); otherwise none. budget_detail holds the amount or phrase.
 _TAG_BREAK = re.compile(r"</?\s*post\b", re.IGNORECASE)
 
 
-def render_post(post: dict, max_chars: int) -> tuple[str, bool]:
-    """Wrap one stored post for the model. Returns (text, was_truncated)."""
+BATCH_ADDENDUM = """
+You will receive several posts at once, each as <post n="...">. Return exactly one entry per post in `results`, \
+copying that post's n into the entry's `n`. Judge every post independently of the others.
+"""
+
+
+def render_post(post: dict, max_chars: int, index: int | None = None) -> tuple[str, bool]:
+    """Wrap one stored post for the model. Returns (text, was_truncated). `index` adds an n attribute for batches."""
     title = (post.get("title") or "").strip()
     body = (post.get("body") or "").strip()
     truncated = False
@@ -43,8 +49,9 @@ def render_post(post: dict, max_chars: int) -> tuple[str, bool]:
     # Stop scraped text from closing our wrapper tag.
     title = _TAG_BREAK.sub("[post", title)
     body = _TAG_BREAK.sub("[post", body)
+    n_attr = f' n="{index}"' if index is not None else ""
     text = (
-        f'<post source="{post.get("source", "")}" community="{post.get("community", "")}" kind="{post.get("kind", "post")}">\n'
+        f'<post{n_attr} source="{post.get("source", "")}" community="{post.get("community", "")}" kind="{post.get("kind", "post")}">\n'
         f"<title>{title}</title>\n<body>{body}</body>\n</post>"
     )
     return text, truncated

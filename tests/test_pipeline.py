@@ -48,7 +48,7 @@ def test_extraction_requests_use_structured_output_and_no_tools(loaded, cfg):
     assert "tools" not in call  # scraped text must never reach a tool-enabled call
     assert call["output_config"]["format"]["type"] == "json_schema"
     assert call["output_config"]["effort"] == "low"
-    assert call["model"] == "claude-opus-5-5"
+    assert call["model"] == "claude-haiku-5-5"
 
 
 def test_fallbacks_flag_changes_endpoint_kwargs(loaded, cfg):
@@ -61,6 +61,17 @@ def test_fallbacks_flag_changes_endpoint_kwargs(loaded, cfg):
     llm2 = LLM(FakeClient(default_handler()), cfg)
     llm2.extract_post({"title": "x", "body": "y" * 30})
     assert "fallbacks" not in llm2.client.calls[0] and "betas" not in llm2.client.calls[0]
+
+
+def test_fallbacks_auto_skips_haiku_and_uses_models_that_support_them(cfg):
+    assert cfg["llm"]["use_fallbacks"] == "auto"
+    haiku = LLM(FakeClient(default_handler()), cfg)
+    haiku.extract_post({"title": "x", "body": "y" * 30})
+    assert "fallbacks" not in haiku.client.calls[0]  # Haiku 5.5 has no server-side fallback: sending it would 400
+    cfg["models"]["extract"] = "claude-opus-5-5"
+    opus = LLM(FakeClient(default_handler()), cfg)
+    opus.extract_post({"title": "x", "body": "y" * 30})
+    assert opus.client.calls[0]["fallbacks"] == "default"
 
 
 def test_invented_quotes_are_dropped(loaded, cfg):
@@ -106,7 +117,7 @@ def test_auth_error_aborts_the_whole_run(loaded, cfg):
     def handler(kw):
         raise anthropic.AuthenticationError("invalid x-api-key", response=httpx.Response(401, request=_req()), body=None)
     _, s = extracted(loaded, cfg, handler=handler)
-    assert s.aborted and "fatal API error" in s.aborted
+    assert s.aborted and s.aborted.startswith("stopped:") and "AuthenticationError" in s.aborted
     assert loaded.execute("SELECT COUNT(*) FROM extractions").fetchone()[0] == 0  # nothing marked done
 
 
@@ -142,9 +153,9 @@ def test_cost_estimate_uses_configured_prices(loaded, cfg):
     rows = db.pending_posts(loaded)
     est = estimate_cost(rows, cfg)
     assert est["posts"] == len(rows) and est["usd"] > 0
-    cfg["models"]["extract"] = "claude-haiku-5-5"
-    cheap = estimate_cost(rows, cfg)
-    assert cheap["usd"] < est["usd"] / 20
+    cfg["models"]["extract"] = "claude-opus-5-5"
+    pricey = estimate_cost(rows, cfg)
+    assert est["usd"] < pricey["usd"] / 20  # Haiku 5.5 (the default) vs Opus 5.5
 
 
 def theme(problem: str) -> str:

@@ -1,50 +1,64 @@
 # painpoint-radar
 
-Find real user pain points for a SaaS idea. It collects public posts, comments and reviews, uses Claude to pull
-out the pain points, groups repeats, scores each theme out of 10, and web-searches whether solutions already exist.
+A Reddit pain-point finder, built to discover the idea for our next SaaS product. It collects public posts, comments
+and reviews, uses Claude to pull out the pain points, groups repeats, scores each theme out of 10, and web-searches
+whether solutions already exist.
 
 ```
  collect ──► extract ──► cluster ──► solutions ──► report
- PRAW (Reddit API)   Claude, one     keyword pass +   Claude + web     scored table,
- Scrapling (web)     call per post   Claude merge     search, URLs     quotes with links,
- JSONL/CSV import    structured JSON                  verified         CSV
+ PRAW (Reddit API)   Claude, posts   keyword pass +   Claude + web     scored table,
+ Scrapling (web)     in small        Claude merge     search, URLs     quotes with links,
+ JSONL/CSV import    batches                          verified         CSV
 ```
 
-Example of the output: [`docs/sample_report.md`](docs/sample_report.md) (**synthetic data**, format only).
+Output example: [`docs/sample_report.md`](docs/sample_report.md) (**synthetic data**, format only).
 
-## Quick start
+## Two ways to run the Claude steps
+
+| `backend:` | Uses | Cost |
+|---|---|---|
+| **`claude_code`** (default) | your logged-in Claude Code, via the CLI's documented headless mode (`claude -p`) | no per-token billing; counts toward your subscription's usage limits |
+| `api` | the Anthropic API (`ANTHROPIC_API_KEY`) | per token; Haiku 5.5 is roughly $0.5 per 1,000 posts |
+
+`claude_code` does not read or forward any credential: it just runs the real `claude` binary you already signed in
+with. `ANTHROPIC_API_KEY` is removed from that child process (`cc.strip_api_key_env`) because when it is set the CLI
+bills the API account instead of your subscription. Do not paste a subscription/OAuth token into API code; Anthropic's
+terms (check the current text) restrict using consumer-plan tokens outside Claude Code itself. Running `claude -p` is
+Claude Code itself.
+
+## Quick start (on a machine where you are signed in to Claude Code)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[reddit,scrape]"        # drop extras you do not need
-scrapling install                        # only if you use browser-based Scrapling fetching
-cp config.example.yaml config.yaml       # edit subreddits / models / web_sources
+cp config.example.yaml config.yaml
 
-export ANTHROPIC_API_KEY=...             # or `ant auth login`
-painpoint doctor --search                # 1 tiny live call per feature: key, model, structured output, fallbacks, web search
+claude                                   # once: sign in with your subscription
+painpoint doctor --search                # one tiny real call per feature: login, structured output, web search
 
 export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=... REDDIT_USER_AGENT="painpoint-radar by u/yourname"
 painpoint init
-painpoint collect reddit                 # official API; add --subreddit X (repeatable)
-painpoint collect web                    # Scrapling sources from config.yaml
-painpoint collect import my_export.jsonl --source-name g2   # any JSONL/CSV you already have
-painpoint extract --dry-run              # rough cost estimate first
-painpoint extract --max-usd 20           # refuses to start if the estimate is higher
-painpoint cluster                        # keyword pass + Claude merge (use --no-merge to skip the API call)
+painpoint collect reddit                 # official API; r/SaaS and r/SideProject by default
+painpoint extract --dry-run              # call count + token estimate
+painpoint extract --limit 200            # start small and watch your usage
+painpoint extract                        # resumes where it stopped, also after a usage limit
+painpoint cluster                        # keyword pass + Claude merge (--no-merge skips the Claude call)
 painpoint solutions --top 15             # web search for existing products
 painpoint report --top 25 --csv scores.csv
 ```
 
 Every step is resumable and idempotent: re-running `collect` skips duplicates, `extract` only touches posts without
-a result (`--retry-errors` retries failures), `solutions` skips themes already checked (`--force` to redo).
+a result (`--retry-errors` retries failures), `solutions` skips themes already checked (`--force` to redo). If the
+subscription's usage limit is hit mid-run, `extract` stops cleanly and the next run continues.
 
 ## Sources
 
 - **Reddit: official API via PRAW.** Needs your own app credentials. Reddit's terms govern what you may do with the
-  data, especially for a commercial product, and access rules have been changing; check
-  Reddit's current Data API terms (start at redditinc.com/policies) and your access before building on it.
-  This tool never reads or stores usernames. If you cannot get API access, use `collect import` with data you are
-  entitled to use.
+  data, especially for a commercial product, and access rules have been changing; check Reddit's current Data API
+  terms (start at redditinc.com/policies) and your access before building on it. Usernames are never read or stored.
+  r/SaaS and r/SideProject are mostly founders and builders, so the "general" pain points you get are weighted toward
+  founder problems (finding customers, onboarding, pricing, tooling); the `Who` line in the report shows the persona.
+  If you cannot get API access, use `collect import` with data you are entitled to use.
 - **Everything else: Scrapling** (`painpoint collect web`). Review sites, forums, directories, changelogs: define
   CSS selectors in `config.yaml` (see `config.example.yaml`). `robots.txt` is obeyed by default; Scrapling drops
   disallowed requests silently, so the CLI prints a warning with the count and another when a source yields 0 items.
@@ -60,9 +74,8 @@ claude mcp add ScraplingServer -- "$(which scrapling-mcp)"           # lets Clau
 npx skills add D4Vinci/Scrapling --skill scrapling-official          # teaches Claude the current Scrapling API
 ```
 
-Let Claude open a review page, find the right selectors (the MCP `browser_network_requests` tool also shows when a
-page loads its data from a JSON endpoint, which is more stable than HTML selectors), then copy them into
-`web_sources`. For quick one-offs use `scrapling extract get URL out.md -s ".review" --ai-targeted`.
+Let Claude open a review page and find the selectors (the MCP `browser_network_requests` tool also shows when a page
+loads its data from a JSON endpoint, which is more stable than HTML selectors), then copy them into `web_sources`.
 
 ## How the scores work
 
@@ -79,47 +92,53 @@ before), evidence strength (weak / moderate / strong), tools people name, curren
 with links. Quotes are verified to appear verbatim in the source; invented ones are dropped. Treat the ranking as a
 shortlist to validate with interviews, not a verdict.
 
-## Cost
-
-`painpoint extract --dry-run` prints an estimate before spending anything. With the built-in assumptions (about
-2,000 characters per post, conservative output size), per 1,000 posts: **Opus 5.5 about $18, Sonnet 5.5 about $9,
-Haiku 5.5 about $0.45.** The default model is `claude-opus-5-5`; extraction is the dominant cost, so run a
-100-post sample on a cheaper model, compare the pain points, and switch `models.extract` if quality holds. The
-Batches API (50% off) is not wired in yet. `--max-usd` is a guard against typos, not a billing limit.
-
 ## Safety and privacy
 
-- Scraped text is untrusted. Extraction calls have no tools and wrap the text in tags with an explicit
-  "data, not instructions" system prompt; the text cannot close the wrapper tag.
+- Scraped text is untrusted. Extraction and merge calls run with **every tool disabled** (`--tools ""`, no MCP, no
+  slash commands, empty temp directory, replacement system prompt) and wrap the text in tags with a "data, not
+  instructions" prompt; the text cannot close the wrapper tag. Only the solution check gets `WebSearch`, and it sees
+  only our own cluster label and quotes.
 - Usernames are never stored; emails, phone numbers and `u/name` mentions are scrubbed before storage.
 - Secrets live in environment variables, not in `config.yaml` (git-ignored).
 - Clusters, labels and report text come from a model summarising public posts and can be wrong.
 
 ## What is and is not verified
 
-51 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`). They cover scoring maths,
-dedup, scrubbing, the Reddit and importer converters (with fake PRAW objects), the **real Scrapling spider against a
-local mock site including pagination, rating filter, max pages and robots.txt**, the CLI, and every Claude-calling
-path against a **fake client** (resumability, refusals, `max_tokens`, auth/transient errors, injection wrapping,
-invented quotes and invented products being dropped, `pause_turn` continuation).
+63 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
+scrubbing, the Reddit and importer converters (fake PRAW objects), the **real Scrapling spider against a local mock
+site** (pagination, rating filter, max pages, robots.txt), the CLI, the Claude Code backend through the real
+subprocess path against a fake `claude` (flags, API-key stripping, usage-limit stop, login errors, missing CLI), and
+the API backend against a fake client.
 
-**Not yet run against real services:** the live Anthropic API (structured output together with `effort`, the
-`fallbacks: "default"` beta, the `web_search_20260209` tool), live Reddit, and real review sites. `painpoint doctor
---search` exercises the first three; the extraction part costs a fraction of a cent and the web-search part usually well under a dollar. Run it first.
+**Run for real, end to end, through `claude -p`** (Haiku for extraction, Sonnet for merge and the web-search solution
+check) on the 22 synthetic posts in `tests/data.py`: all steps completed with no errors, the merge turned 11 keyword
+clusters into the 3 true themes, and the solution check returned verified product URLs. That is a plumbing test on
+made-up posts, not evidence about real Reddit data.
+
+**Not yet run for real:** the `api` backend against the live API, live Reddit, real review sites.
+
+### Measured: batch size
+
+On those 22 posts, at 12 posts per call Haiku skipped the same clear pain post in both runs; at 6 and at 3 it caught
+all 18. The default is therefore 6 (about 1.8x the tokens of 12). Small sample; tune `cc.batch_size` and spot-check
+your own data.
 
 ## Known limitations
 
-- Keyword clustering alone misses paraphrases (measured: true paraphrases score about 0.15 TF-IDF similarity);
-  that is why `cluster` adds a Claude merge pass. Merging happens within batches of 300 labels, largest clusters first.
+- Keyword clustering alone misses paraphrases (true paraphrases scored about 0.15 TF-IDF similarity); that is why
+  `cluster` adds a Claude merge pass. Merging happens within batches of 300 labels, largest clusters first.
 - "Repeated /10" depends on how much you collected and from where. Collect broadly before comparing themes.
+- A small model in batches can miss pain posts (see above) or misjudge urgency. Spot-check 30-50 results.
 - Reddit comments are optional and prefiltered by a keyword heuristic to control cost.
 - No license file yet; add one before sharing the code.
 
 ## Layout
 
 ```
-painpoint/  config.py  db.py  schemas.py  prompts.py  llm.py          # all Claude calls live in llm.py
+painpoint/  config.py  db.py  schemas.py  prompts.py
+            llm.py            # Anthropic API backend + shared helpers
+            cc_backend.py     # Claude Code (`claude -p`) backend
             collect/{reddit_api,web_spider,importer,common}.py
             extract.py  cluster.py  solutions.py  scoring.py  report.py  cli.py
-tests/      fake Anthropic client + synthetic fixtures (tests/data.py is made-up, not real posts)
+tests/      fake Anthropic client, fake `claude` executable, synthetic fixtures (tests/data.py is made up)
 ```

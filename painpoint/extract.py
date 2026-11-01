@@ -31,10 +31,28 @@ class ExtractSummary:
     input_tokens: int = 0
     output_tokens: int = 0
     aborted: str | None = None
+    notional_usd: float | None = None  # claude_code backend: list-price value of the work (not billed on a subscription)
 
 
 def _norm(s: str) -> str:
     return _WS.sub(" ", s.lower()).strip()
+
+
+def make_batches(rows: list[dict], max_items: int, max_chars: int, per_post_cap: int) -> list[list[dict]]:
+    """Group rows into batches of at most `max_items` posts and (if max_chars) about `max_chars` characters."""
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    chars = 0
+    for row in rows:
+        size = min(len(row["title"]) + len(row["body"]), per_post_cap)
+        if current and (len(current) >= max_items or (max_chars and chars + size > max_chars)):
+            batches.append(current)
+            current, chars = [], 0
+        current.append(row)
+        chars += size
+    if current:
+        batches.append(current)
+    return batches
 
 
 def estimate_cost(rows, cfg: dict) -> dict:
@@ -87,24 +105,27 @@ def run_extraction(
             else:
                 summary.errors += 1
 
-    with ThreadPoolExecutor(max_workers=cfg["llm"]["workers"]) as pool:
-        futures = {pool.submit(llm.extract_post, r): r for r in rows}
+    batches = make_batches(rows, llm.batch_size, llm.batch_chars, cfg["llm"]["max_post_chars"])
+    with ThreadPoolExecutor(max_workers=llm.workers) as pool:
+        futures = {pool.submit(llm.extract_batch, b): b for b in batches}
         try:
             for fut in as_completed(futures):
-                handle(futures[fut], fut.result())
-                done += 1
-                if done % 25 == 0:
-                    conn.commit()
-                    if progress:
-                        progress(f"  extracted {done}/{len(rows)}")
+                batch = futures[fut]
+                for row, result in zip(batch, fut.result()):
+                    handle(row, result)
+                    done += 1
+                conn.commit()
+                if progress:
+                    progress(f"  extracted {done}/{len(rows)}")
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                     summary.aborted = f"{MAX_CONSECUTIVE_ERRORS} errors in a row (last: see extractions.error)"
                     break
         except FatalLLMError as exc:
-            summary.aborted = f"fatal API error: {exc}"
+            summary.aborted = f"stopped: {exc}"
         finally:
             for f in futures:
                 f.cancel()
     conn.commit()
     summary.input_tokens, summary.output_tokens = llm.usage["input"], llm.usage["output"]
+    summary.notional_usd = llm.usage.get("notional_usd")
     return summary
