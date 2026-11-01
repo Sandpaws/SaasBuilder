@@ -41,7 +41,9 @@ export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...
 export REDDIT_USER_AGENT="python:com.yourname.painpoint-radar:v0.1.0 (by /u/yourname)"   # Reddit's required format
 painpoint init
 painpoint subreddits check SaaS SideProject SomebodyMakeThis   # exists? usable? how big?
-painpoint collect reddit                 # official API; first removes items deleted on Reddit, then collects
+painpoint collect hn --limit 20          # Hacker News test run: no key, no approval needed
+painpoint collect hn                     # full run (comments + Ask HN posts matching complaint phrases)
+painpoint collect reddit --limit 5       # small Reddit test run (needs approved API access); then drop --limit
 painpoint extract --dry-run              # call count + token estimate
 painpoint extract --limit 200            # start small and watch your usage
 painpoint extract                        # resumes where it stopped, also after a usage limit
@@ -86,6 +88,11 @@ Taken from Reddit's own API guide and Data API terms. Not legal advice; the term
 
 ## Sources
 
+- **Hacker News: public Algolia search API** (`painpoint collect hn`). No key. Searches comments and "Ask HN" posts for
+  complaint phrases (`hackernews.queries`), converts the HTML to text, never reads author names, and runs sequentially
+  with a delay and a User-Agent that names this project. Audience skews toward developers and founders. Check the
+  API's current terms before relying on it. Written from the documented response shape and tested against fixtures;
+  **not yet run against the live service** (it is blocked in the cloud sandbox: allow `hn.algolia.com` or run it locally).
 - **Reddit: official API via PRAW.** Needs your own app credentials. Reddit's terms govern what you may do with the
   data, especially for a commercial product, and access rules have been changing; check Reddit's current Data API
   terms (start at redditinc.com/policies) and your access before building on it. Usernames are never read or stored.
@@ -141,12 +148,13 @@ shortlist to validate with interviews, not a verdict.
 
 ## What is and is not verified
 
-80 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
+95 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
 scrubbing, the Reddit and importer converters (fake PRAW objects), the **real Scrapling spider against a local mock
 site** (pagination, rating filter, max pages, robots.txt), the CLI, the Claude Code backend through the real
 subprocess path against a fake `claude` (flags, API-key stripping, usage-limit stop, login errors, missing CLI), and
 the API backend against a fake client, the deletion sync (including a check that purged text is gone from the
-database file), the User-Agent check, complaint-phrase search, and subreddit discovery (all against fake PRAW objects).
+database file), the User-Agent check, complaint-phrase search, and subreddit discovery (all against fake PRAW objects), and the Hacker
+News collector (HTML cleanup, paging, dedup, failure handling) against responses shaped like the Algolia API.
 
 **Run for real, end to end, through `claude -p`** (Haiku for extraction, Sonnet for merge and the web-search solution
 check) on the 22 synthetic posts in `tests/data.py`: all steps completed with no errors, the merge turned 11 keyword
@@ -154,7 +162,7 @@ clusters into the 3 true themes, and the solution check returned verified produc
 made-up posts, not evidence about real Reddit data.
 
 **Not yet run for real:** the `api` backend against the live API, live Reddit (collection, search, deletion sync and
-subreddit checks only ran against fake PRAW objects), real review sites.
+subreddit checks only ran against fake PRAW objects), the Hacker News collector (fixtures only), real review sites.
 
 ### Measured: batch size
 
@@ -177,7 +185,7 @@ your own data.
 painpoint/  config.py  db.py  schemas.py  prompts.py
             llm.py            # Anthropic API backend + shared helpers
             cc_backend.py     # Claude Code (`claude -p`) backend
-            collect/{reddit_api,web_spider,importer,common}.py
+            collect/{reddit_api,hackernews,web_spider,importer,common}.py
             extract.py  cluster.py  solutions.py  scoring.py  report.py  cli.py
 tests/      fake Anthropic client, fake `claude` executable, synthetic fixtures (tests/data.py is made up)
 ```

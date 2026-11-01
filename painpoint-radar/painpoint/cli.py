@@ -80,9 +80,13 @@ def cmd_collect(args, cfg):
         if not args.skip_purge:
             _purge_deleted(conn, reddit)
         names = args.subreddit or cfg["reddit"]["subreddits"]
+        rcfg = dict(cfg["reddit"])
+        if args.limit:  # small test run: fewer posts per listing and per search query
+            rcfg["limit"] = args.limit
+            rcfg["search_limit"] = min(rcfg["search_limit"], args.limit)
         failed = []
         for name in names:
-            posts, error = reddit_api.collect_safely(reddit, name, cfg["reddit"])
+            posts, error = reddit_api.collect_safely(reddit, name, rcfg)
             ins, skip = db.insert_posts(conn, posts)
             print(f"r/{name}: {ins} new, {skip} already stored or duplicate")
             if error:
@@ -90,6 +94,18 @@ def cmd_collect(args, cfg):
                 print(f"  WARNING r/{name}: {error}")
         if failed:
             print(f"{len(failed)} subreddit(s) had problems: {', '.join('r/' + n for n in failed)}")
+    elif args.source_type == "hn":
+        from .collect import hackernews
+
+        if args.query:
+            cfg["hackernews"]["queries"] = args.query
+        if args.limit:
+            cfg["hackernews"]["max_per_query"] = args.limit
+        posts, errors = hackernews.collect_hackernews(cfg)
+        ins, skip = db.insert_posts(conn, posts)
+        print(f"hackernews: {ins} new, {skip} already stored or duplicate")
+        for err in errors:
+            print(f"  WARNING {err}")
     elif args.source_type == "web":
         from .collect import web_spider
 
@@ -218,8 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
     csub = c.add_subparsers(dest="source_type", required=True)
     r = csub.add_parser("reddit", help="official Reddit API via PRAW")
     r.add_argument("--subreddit", action="append", help="repeatable; defaults to config reddit.subreddits")
+    r.add_argument("--limit", type=int, help="posts per listing and per search query (small number = test run)")
     r.add_argument("--skip-purge", action="store_true",
                    help="do not first remove stored items that were deleted on Reddit (not recommended)")
+    h = csub.add_parser("hn", help="Hacker News complaint-phrase search (public Algolia API)")
+    h.add_argument("--query", action="append", help="repeatable; replaces config hackernews.queries")
+    h.add_argument("--limit", type=int, help="max hits per query (use a small number for a test run)")
     w = csub.add_parser("web", help="Scrapling web sources from config web_sources")
     w.add_argument("--source", action="append", help="repeatable; defaults to all")
     i = csub.add_parser("import", help="import a JSONL/CSV file")

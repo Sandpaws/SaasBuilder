@@ -72,6 +72,19 @@ DEFAULTS: dict[str, Any] = {
         "search_time": "year",         # hour|day|week|month|year|all
         "search_limit": 25,            # posts per query per subreddit
     },
+    # Hacker News via the public Algolia search API: complaint phrases in comments and "Ask HN" posts.
+    "hackernews": {
+        "queries": [
+            '"wish there was"', '"is there a tool"', '"is there an app"', '"alternative to"',
+            '"frustrated with"', '"looking for software"', '"too expensive"', '"waste hours"',
+        ],
+        "tags": ["comment", "ask_hn"],  # Algolia tags; each query runs once per tag
+        "sort": "search",               # search = relevance, search_by_date = newest first
+        "since_days": 365,
+        "max_per_query": 100,           # hits per (tag, query)
+        "min_chars": 80,                # shortest comment worth analysing
+        "delay_s": 1.0,                 # pause between requests
+    },
     # Scrapling-based sources (reviews, forums, ...). See config.example.yaml.
     "web_sources": [],
     "cluster": {

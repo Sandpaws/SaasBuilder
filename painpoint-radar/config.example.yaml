@@ -39,6 +39,12 @@ reddit:
   search_time: year
   search_limit: 25
 
+hackernews:               # public Algolia API, no key; run: painpoint collect hn
+  tags: [comment, ask_hn]
+  since_days: 365
+  max_per_query: 100
+  # queries: ['"wish there was"', '"alternative to"']   # defaults are in painpoint/config.py
+
 scoring:
   half_life_days: 180
   weights: {repetition: 0.40, intensity: 0.20, wtp: 0.15, competition_gap: 0.25}
