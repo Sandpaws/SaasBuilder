@@ -15,9 +15,24 @@ below in order, or read `git log` to watch the project grow.
 
 | # | Step | Where | Status |
 |---|---|---|---|
-| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (99 passing). Collectors: Hacker News (no key needed), Reddit (waits on Reddit's API access approval), web pages via Scrapling. Run end to end on synthetic posts only; first run on live data pending |
+| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (99 passing). Collectors: Hacker News (no key needed), Reddit (access requested 2026-11-01, waiting for Reddit's reply), web pages via Scrapling. Run end to end on synthetic posts only; first run on live data pending |
 | 2 | **Validate the idea** | not started | planned |
 | 3 | **Build the product** | not started | planned |
 | 4 | **Deploy it** | not started | planned |
 
 Steps 2 to 4 will be shaped by what the first report shows, so they stay planned until we have real results.
+
+## Progress log
+
+Newest last. Every entry maps to commits in `git log`.
+
+- **2026-11-01, build the finder.** Built the pain-point pipeline in [`painpoint-radar/`](painpoint-radar/): collect, extract
+  with Claude, cluster, score out of 10, check whether solutions already exist. Tested end to end on synthetic posts,
+  including a real run through Claude Code (`claude -p`) on a subscription.
+- **2026-11-01, Reddit's rules.** Read Reddit's API guide, Developer Terms and Data API Terms. Added a deletion sync that
+  also catches edited posts, a wipe command, a User-Agent check, and a clause-by-clause rules section. Decided not to build
+  a "no-API" scraper.
+- **2026-11-01, a source that needs no approval.** Added a Hacker News collector (written from the documented API, not yet
+  run live).
+- **2026-11-01, asked Reddit for access.** Submitted a read-only Data API request for ten subreddits. Write-up and lessons:
+  [`painpoint-radar/docs/reddit-access-request.md`](painpoint-radar/docs/reddit-access-request.md). Waiting for a reply.

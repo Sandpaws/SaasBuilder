@@ -62,6 +62,8 @@ subscription's usage limit is hit mid-run, `extract` stops cleanly and the next 
 Checked against Reddit's Developer Terms (revised March 2026), Data API Terms and API guide. Not legal advice; the
 terms are the authority.
 
+How we asked, and what we learned: [`docs/reddit-access-request.md`](docs/reddit-access-request.md).
+
 ### Open issues only Reddit can settle (put them in the access request)
 
 1. **Commercial use** (Developer Terms 4.1, Data API 3.1-3.2). Without written approval you may not use Reddit data
