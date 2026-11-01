@@ -25,7 +25,17 @@ llm:
 reddit:
   # Uses the official API through PRAW. Needs REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET / REDDIT_USER_AGENT.
   # Check Reddit's Data API terms and your access before using the data commercially.
-  subreddits: [SaaS, SideProject]   # general founder/builder communities; add more any time
+  subreddits:             # check each with `painpoint subreddits check NAME` once you have API access
+    - SaaS                # builders and founders
+    - SideProject
+    - SomebodyMakeThis    # people asking for tools to exist
+    - AppIdeas
+    - software
+    - smallbusiness       # operators and buyers across industries
+    - Entrepreneur
+    - freelance
+    - sysadmin            # IT staff and people leaving paid tools
+    - selfhosted
   listing: top
   time_filter: month
   limit: 100

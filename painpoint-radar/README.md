@@ -40,7 +40,7 @@ painpoint doctor --search                # one tiny real call per feature: login
 export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...
 export REDDIT_USER_AGENT="python:com.yourname.painpoint-radar:v0.1.0 (by /u/yourname)"   # Reddit's required format
 painpoint init
-painpoint subreddits check SaaS SideProject SomebodyMakeThis   # exists? usable? how big?
+painpoint subreddits check SaaS SideProject SomebodyMakeThis AppIdeas software smallbusiness Entrepreneur freelance sysadmin selfhosted   # exist? usable? how big?
 painpoint collect hn --limit 20          # Hacker News test run: no key, no approval needed
 painpoint collect hn                     # full run (comments + Ask HN posts matching complaint phrases)
 painpoint collect reddit --limit 5       # small Reddit test run (needs approved API access); then drop --limit
@@ -108,11 +108,14 @@ prohibited, and exported copies cannot be synced for deletions. If approval is d
   terms (start at redditinc.com/policies) and your access before building on it. Usernames are never read or stored.
   Besides the listing (`top` of the month by default) it runs a search per complaint phrase (`reddit.search_queries`,
   e.g. "wish there was", "alternative to"), which finds far more on-topic posts than the top list.
-  r/SaaS and r/SideProject are mostly founders and builders, so the "general" pain points you get are weighted toward
-  founder problems (finding customers, onboarding, pricing, tooling); the `Who` line in the report shows the persona.
+  Default subreddits (10, none verified yet): builders (`SaaS`, `SideProject`), people asking for tools to exist
+  (`SomebodyMakeThis`, `AppIdeas`, `software`), operators and buyers (`smallbusiness`, `Entrepreneur`, `freelance`) and
+  IT/self-hosting users (`sysadmin`, `selfhosted`). Audiences differ, so the report's `Who` line and community counts
+  matter. That is up to ~300 posts per subreddit per run and roughly 3,000 requests in total (about 30 minutes at
+  Reddit's limit), so make the first run small with `--subreddit` and `--limit`.
   If you cannot get API access, use `collect import` with data you are entitled to use, or other sources whose terms
-  allow it (for example Hacker News, Stack Exchange, GitHub issues/discussions, or app-store reviews; none built yet,
-  and each has its own terms to read first).
+  allow it. Hacker News is built (below); Stack Exchange, GitHub issues/discussions and app-store reviews are ideas
+  that are not built yet, and each has its own terms to read first.
 - **Everything else: Scrapling** (`painpoint collect web`). Review sites, forums, directories, changelogs: define
   CSS selectors in `config.yaml` (see `config.example.yaml`). `robots.txt` is obeyed by default; Scrapling drops
   disallowed requests silently, so the CLI prints a warning with the count and another when a source yields 0 items.

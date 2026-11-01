@@ -72,9 +72,12 @@ def test_claude_code_backend_dry_run_says_no_api_charges(workdir, capsys):
     assert "22 posts in ~4 `claude -p` calls" in out and "No API charges" in out
 
 
-def test_default_config_targets_the_two_given_subreddits_and_haiku():
+def test_default_config_targets_the_agreed_subreddits_and_haiku():
     from painpoint.config import load_config
     c = load_config()
-    assert c["reddit"]["subreddits"] == ["SaaS", "SideProject"]
+    subs = c["reddit"]["subreddits"]
+    assert subs[:2] == ["SaaS", "SideProject"] and len(subs) == 10
+    assert len({n.lower() for n in subs}) == len(subs)               # no duplicates
+    assert all(n.isalnum() or "_" in n for n in subs)                 # plain subreddit names, no "r/" prefix
     assert c["backend"] == "claude_code" and c["cc"]["models"]["extract"] == "haiku" and c["cc"]["batch_size"] == 6
     assert c["models"]["extract"] == "claude-haiku-5-5" and c["llm"]["use_fallbacks"] == "auto"

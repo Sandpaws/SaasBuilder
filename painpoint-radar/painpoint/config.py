@@ -52,7 +52,12 @@ DEFAULTS: dict[str, Any] = {
         "claude-haiku-5-5": [0.10, 0.50],
     },
     "reddit": {
-        "subreddits": ["SaaS", "SideProject"],
+        "subreddits": [
+            "SaaS", "SideProject",                          # builders and founders
+            "SomebodyMakeThis", "AppIdeas", "software",     # people asking for tools to exist
+            "smallbusiness", "Entrepreneur", "freelance",   # operators and buyers across industries
+            "sysadmin", "selfhosted",                       # IT staff and people leaving paid tools
+        ],
         "listing": "top",              # top | hot | new | controversial
         "time_filter": "month",        # hour|day|week|month|year|all (top/controversial only)
         "limit": 100,                  # posts per subreddit
