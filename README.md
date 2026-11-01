@@ -104,7 +104,7 @@ shortlist to validate with interviews, not a verdict.
 
 ## What is and is not verified
 
-63 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
+64 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
 scrubbing, the Reddit and importer converters (fake PRAW objects), the **real Scrapling spider against a local mock
 site** (pagination, rating filter, max pages, robots.txt), the CLI, the Claude Code backend through the real
 subprocess path against a fake `claude` (flags, API-key stripping, usage-limit stop, login errors, missing CLI), and

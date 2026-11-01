@@ -112,3 +112,20 @@ def collect_subreddit(reddit, name: str, cfg: dict) -> Iterator[Post]:
             kept += 1
             if kept >= cfg["comments_per_post"]:
                 break
+
+
+def collect_safely(reddit, name: str, cfg: dict) -> tuple[list[Post], str | None]:
+    """Collect one subreddit. A missing/private/banned subreddit or an access error becomes a message, not a crash;
+    whatever was gathered before the error is still returned so it can be saved."""
+    try:
+        from prawcore.exceptions import PrawcoreException
+    except ImportError:  # pragma: no cover - PRAW not installed
+        PrawcoreException = ()  # type: ignore[assignment,misc]
+    posts: list[Post] = []
+    try:
+        for post in collect_subreddit(reddit, name, cfg):
+            posts.append(post)
+    except PrawcoreException as exc:
+        return posts, (f"{type(exc).__name__}: the subreddit may not exist, be private or banned, "
+                       "or your credentials lack access")
+    return posts, None

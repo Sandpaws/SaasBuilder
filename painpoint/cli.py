@@ -43,9 +43,16 @@ def cmd_collect(args, cfg):
 
         reddit = reddit_api.make_client()
         names = args.subreddit or cfg["reddit"]["subreddits"]
+        failed = []
         for name in names:
-            ins, skip = db.insert_posts(conn, reddit_api.collect_subreddit(reddit, name, cfg["reddit"]))
+            posts, error = reddit_api.collect_safely(reddit, name, cfg["reddit"])
+            ins, skip = db.insert_posts(conn, posts)
             print(f"r/{name}: {ins} new, {skip} already stored or duplicate")
+            if error:
+                failed.append(name)
+                print(f"  WARNING r/{name}: {error}")
+        if failed:
+            print(f"{len(failed)} subreddit(s) had problems: {', '.join('r/' + n for n in failed)}")
     elif args.source_type == "web":
         from .collect import web_spider
 

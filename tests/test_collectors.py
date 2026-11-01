@@ -119,3 +119,20 @@ def test_duplicate_text_and_ids_are_ignored(conn):
     assert db.insert_posts(conn, [a, b, c]) == (1, 2)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(posts)")]
     assert not any(x in cols for x in ("author", "username", "user"))
+
+
+def test_a_missing_subreddit_is_reported_and_partial_results_are_kept():
+    from prawcore.exceptions import NotFound
+
+    def broken_listing(**kwargs):
+        yield sub("ok1", title="A perfectly fine long enough post title")
+        raise NotFound(NS(status_code=404))
+
+    reddit = NS(subreddit=lambda name: NS(top=broken_listing))
+    posts, error = reddit_api.collect_safely(reddit, "saasuser", {**CFG, "include_comments": False})
+    assert [p.id for p in posts] == ["reddit:t3_ok1"]  # what was gathered before the error is kept
+    assert "NotFound" in error and "may not exist" in error
+
+    good = NS(subreddit=lambda name: NS(top=lambda **kw: iter([sub("ok2", title="Another long enough post title")])))
+    posts, error = reddit_api.collect_safely(good, "SaaS", {**CFG, "include_comments": False})
+    assert error is None and len(posts) == 1
