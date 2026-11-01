@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "painpoint-radar"
+version = "0.1.0"
+description = "Collect public posts/reviews, extract user pain points with Claude, score them, and check whether solutions already exist."
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=2.3",
+    "pydantic>=2",
+    "pyyaml",
+    "scikit-learn",
+]
+
+[project.optional-dependencies]
+reddit = ["praw>=7.7"]                 # official Reddit API collector
+scrape = ["scrapling[fetchers]>=0.5"]  # Scrapling-based web collector (reviews, forums, ...)
+dev = ["pytest"]
+
+[project.scripts]
+painpoint = "painpoint.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["painpoint*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

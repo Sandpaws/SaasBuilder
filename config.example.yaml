@@ -1,0 +1,51 @@
+# Copy to config.yaml and edit. Only list what you want to change; everything else uses the defaults in
+# painpoint/config.py. Secrets (ANTHROPIC_API_KEY, REDDIT_*) go in environment variables, never in this file.
+
+db_path: painpoint.db
+
+models:
+  # Extraction runs once per post and dominates cost. Check a 100-post sample on a cheaper model before
+  # committing: claude-sonnet-5-5 (~half the price) or claude-haiku-5-5 (~40x cheaper) -- see README "Cost".
+  extract: claude-opus-5-5
+  solutions: claude-opus-5-5
+  merge: claude-opus-5-5
+
+llm:
+  workers: 4
+  use_fallbacks: true   # set false on Bedrock/Vertex/Foundry, or if `painpoint doctor` complains about it
+
+reddit:
+  # Uses the official API through PRAW. Needs REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET / REDDIT_USER_AGENT.
+  # Check Reddit's Data API terms and your access before using the data commercially.
+  subreddits: [SaaS, SideProject, microsaas, startups]   # add niche/industry subreddits where your buyers complain
+  listing: top
+  time_filter: month
+  limit: 100
+  include_comments: true
+
+scoring:
+  half_life_days: 180
+  weights: {repetition: 0.40, intensity: 0.20, wtp: 0.15, competition_gap: 0.25}
+
+# Review sites, forums, directories... collected with Scrapling. Uncomment and adapt.
+# Find the selectors interactively first (Scrapling MCP server + `scrapling extract get URL out.md -s ".review" --ai-targeted`).
+# robots.txt is obeyed by default; if it forbids the pages you will see a warning and 0 items. Check each site's terms.
+web_sources: []
+#  - name: acme_reviews
+#    community: "Acme reviews"
+#    kind: review
+#    start_urls: ["https://example.com/acme/reviews?page=1"]
+#    item_selector: ".review"
+#    fields:
+#      title:  ".review-title::text"
+#      body:   ".review-body ::text"
+#      rating: ".stars::attr(data-rating)"
+#      url:    "a.permalink::attr(href)"
+#      date:   "time::attr(datetime)"
+#    next_page: "a.next::attr(href)"
+#    max_pages: 20
+#    max_rating: 3          # only low-star reviews (they hold the complaints)
+#    delay: 2.0
+#    concurrent: 2
+#    # obey_robots_txt: true  # default; leave it on
+#    # dev_cache: true        # cache responses on disk while you tune selectors (turn off for real runs)
