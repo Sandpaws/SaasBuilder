@@ -37,13 +37,26 @@ def cmd_init(args, cfg):
 
 
 def _purge_deleted(conn, reddit) -> int:
+    """Remove stored Reddit items that were deleted, removed or edited on Reddit (edited ones are re-collected)."""
     from .collect import reddit_api
 
-    ids = [r[0] for r in conn.execute("SELECT id FROM posts WHERE source = 'reddit'")]
-    removed = db.purge_posts(conn, reddit_api.find_gone(reddit, ids)) if ids else 0
-    print(f"deletion sync: checked {len(ids)} stored Reddit items, removed {removed} deleted/removed "
-          "(with their extractions)." + (" Re-run `painpoint cluster` to refresh themes." if removed else ""))
+    rows = [dict(r) for r in conn.execute("SELECT id, kind, title, body FROM posts WHERE source = 'reddit'")]
+    gone, modified = reddit_api.find_outdated(reddit, rows) if rows else ([], [])
+    removed = db.purge_posts(conn, gone + modified)
+    print(f"deletion sync: checked {len(rows)} stored Reddit items, removed {len(gone)} deleted/removed and "
+          f"{len(modified)} edited (edited ones are re-collected if they appear again)."
+          + (" Re-run `painpoint cluster` to refresh themes." if removed else ""))
     return removed
+
+
+def cmd_wipe(args, cfg):
+    conn = _conn(cfg)
+    ids = [r[0] for r in conn.execute("SELECT id FROM posts WHERE source = ?", (args.source,))]
+    if not args.yes:
+        sys.exit(f"{len(ids)} '{args.source}' items would be erased with all derived data. Re-run with --yes to do it.")
+    removed = db.purge_posts(conn, ids)
+    print(f"erased {removed} '{args.source}' items, their extractions and cluster links, and compacted the database. "
+          "Also delete any report.md / CSV exports you made from this data.")
 
 
 def cmd_purge(args, cfg):
@@ -282,6 +295,12 @@ def build_parser() -> argparse.ArgumentParser:
     srch.add_argument("query")
     srch.add_argument("--limit", type=int, default=10)
     sr.set_defaults(fn=cmd_subreddits)
+
+    wp = sub.add_parser("wipe", help="erase every stored item from one source and all data derived from it "
+                        "(e.g. if Reddit access ends)")
+    wp.add_argument("--source", default="reddit")
+    wp.add_argument("--yes", action="store_true", help="confirm the erase")
+    wp.set_defaults(fn=cmd_wipe)
 
     sub.add_parser("stats", help="row counts").set_defaults(fn=cmd_stats)
 

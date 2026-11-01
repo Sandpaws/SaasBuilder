@@ -59,32 +59,42 @@ subscription's usage limit is hit mid-run, `extract` stops cleanly and the next 
 
 ## Reddit's rules (read before collecting)
 
-Taken from Reddit's own API guide and Data API terms. Not legal advice; the terms themselves are the authority.
+Checked against Reddit's Developer Terms (revised March 2026), Data API Terms and API guide. Not legal advice; the
+terms are the authority.
 
-- **Approval first.** Reddit requires approval before any API access, and explicit written approval for commercial use.
-  Credentials alone are not permission. Request access through Reddit's support form and describe this use honestly
-  (read-only market research on a few subreddits, analysed with an LLM, nothing redistributed).
-- **Identify yourself.** The User-Agent must look like `<platform>:<app ID>:<version> (by /u/<username>)`;
-  `collect reddit` warns if it does not. Reddit throttles or blocks unidentified clients.
-- **Rate limit:** 100 queries per minute per client id, averaged over 10 minutes. PRAW reads Reddit's
-  `X-Ratelimit-*` headers and waits, and this tool never runs requests in parallel.
-- **Deleted means deleted.** Content deleted on Reddit must be deleted from your copy, including derived data, and
-  Reddit recommends doing it within 48 hours. `collect reddit` runs a deletion sync first (`GET /api/info` on
-  every stored item); `painpoint purge-deleted` does only that. Purging also erases the bytes (WAL checkpoint and
-  VACUUM). Run it at least every 48 hours while you keep Reddit data.
-- **No sharing.** Do not sell, license or share Reddit data. Never commit the database, exports or reports that
-  quote real posts to a public repo (they are git-ignored; `docs/sample_report.md` is synthetic).
-- **No profiling.** The extraction prompt forbids inferring sensitive traits (health, politics, religion, sexuality,
-  ...), no usernames are stored, and nothing tries to link users to anyone off Reddit. Only the `read` scope is
-  needed; no user-history or write endpoints are used.
-- **No AI training.** Sending posts to Claude for analysis is not training, but check your Claude privacy settings:
-  on consumer plans, as I understand Anthropic's terms, chats and Claude Code sessions can be used to improve models
-  if that setting is on. If it is, switch it off or use the `api` backend, whose commercial terms differ. Verify in
-  Anthropic's current terms.
-- **Why there is no "no-API" scraper here.** Browser extensions, `.json` URLs, `old.reddit.com` parsing and paid
-  scraping tools skip the approval step. Reddit's guide says non-OAuth traffic is blocked and that scraping without
-  approval is prohibited, and exported copies cannot be synced for deletions. If approval is denied, use other
-  sources (below) rather than working around it.
+### Open issues only Reddit can settle (put them in the access request)
+
+1. **Commercial use** (Developer Terms 4.1, Data API 3.1-3.2). Without written approval you may not use Reddit data
+   "by or on behalf of a business or as part of a service or product that is monetized", nor derive revenue "directly
+   or indirectly ... including from any data derived from" it. This project exists to choose a SaaS idea to sell, so
+   it probably needs a separate agreement with Reddit (the commercial request type), not just free developer access.
+   If that is out of reach, Reddit stays a place to read by hand, and other sources carry the project.
+2. **Sharing with third parties** (Developer Terms 7.2: "You will not share Reddit Services and Data with any third
+   party"). Sending posts to Claude means sharing them with Anthropic as a service provider. Disclose it and ask.
+3. **Model training** (4.2: no use "to train large language, artificial intelligence, or other algorithmic models"
+   without permission). We only run inference, and the keyword index is rebuilt and thrown away on every run. Say so
+   in the request, and check your Claude privacy setting (on consumer plans, chats can be opted into model improvement).
+
+### What the tool does about the rest
+
+| Rule | In this repo |
+|---|---|
+| Approval before any access; truthful identity, one app per use case (guide; Dev Terms 1.4, 2.8, 4.2) | No collection without approved credentials. No "no-API" scraping. `collect reddit` warns if the User-Agent is not `<platform>:<app ID>:<version> (by /u/<username>)`. |
+| Rate limit 100 queries/min per client id (guide) | PRAW reads Reddit's `X-Ratelimit-*` headers and waits; requests are sequential. |
+| Content deleted, removed **or modified** on Reddit must be deleted/updated promptly; Reddit suggests within 48 hours (Dev Terms 3.3; guide) | `collect reddit` first runs a sync (`GET /api/info`, 100 per request) that purges deleted, removed and edited items with their extractions; edited ones are re-collected. `painpoint purge-deleted` does only that: run it at least every 48 hours while you hold Reddit data. Purging erases the bytes (WAL checkpoint + VACUUM). |
+| On termination, delete all Reddit data "and any data or models derived" from it (Data API 6; Dev Terms 8.2) | `painpoint wipe --yes` erases every Reddit item and everything derived from it. Delete `report.md` and CSV exports yourself. |
+| No selling, sharing or redistributing Reddit data (guide; Dev Terms 4.1-4.2) | Data stays local. Databases, exports and reports are git-ignored; `docs/sample_report.md` is synthetic. Never publish real quotes. |
+| Attribution when you display User Content: link back, cite the username, say it is from Reddit (Dev Terms 5.2) | Reports link every quote to its source. We deliberately do not store usernames, so **do not show or publish Reddit quotes to anyone** unless Reddit agrees how to attribute them. |
+| No inferring sensitive traits, no re-identification (guide) | The prompt forbids it, no usernames are stored, nothing is matched to off-Reddit identity. |
+| Encryption at rest, security (Dev Terms 7.4) | Not built in. Keep the database on an encrypted disk (FileVault, BitLocker, LUKS), not on shared or cloud machines. |
+| Privacy law and Reddit's Developer DPA (Dev Terms 7.1) | No author identifiers are stored; emails, phone numbers and `u/name` mentions are scrubbed. Read the DPA yourself. |
+| Audit and cooperation (Dev Terms 2.2), account in good standing (1.1) | Keep this section accurate; Reddit may ask how you handle data. |
+
+The Reddit Ads API and Devvit (for non-commercial apps) are not used here.
+
+**Why there is no "no-API" scraper.** Browser extensions, `.json` URLs, `old.reddit.com` parsing and paid scraping
+tools skip the approval step. Reddit's guide says non-OAuth traffic is blocked and scraping without approval is
+prohibited, and exported copies cannot be synced for deletions. If approval is denied, use other sources (below).
 
 ## Sources
 
@@ -148,7 +158,7 @@ shortlist to validate with interviews, not a verdict.
 
 ## What is and is not verified
 
-95 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
+99 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
 scrubbing, the Reddit and importer converters (fake PRAW objects), the **real Scrapling spider against a local mock
 site** (pagination, rating filter, max pages, robots.txt), the CLI, the Claude Code backend through the real
 subprocess path against a fake `claude` (flags, API-key stripping, usage-limit stop, login errors, missing CLI), and

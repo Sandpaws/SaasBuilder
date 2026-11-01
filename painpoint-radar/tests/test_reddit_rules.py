@@ -204,16 +204,98 @@ def test_collect_reddit_first_removes_items_deleted_on_reddit(cli_cfg, monkeypat
         Post("reddit:t3_dead", "reddit", "r/x", "post", "reddit:t3_dead", "u", "Dead post title", "Dead body text.", NOW)])
     conn.close()
     reddit = NS(
-        info=lambda fullnames: iter([thing("t3_alive", selftext="Alive body text.", removed_by_category=None),
-                                     thing("t3_dead", selftext="[deleted]", removed_by_category="deleted")]),
+        info=lambda fullnames: iter([thing("t3_alive", title="Alive post title", selftext="Alive body text.",
+                                           removed_by_category=None),
+                                     thing("t3_dead", title="Dead post title", selftext="[deleted]",
+                                           removed_by_category="deleted")]),
         subreddit=lambda n: NS(top=lambda **kw: iter([]), search=lambda *a, **k: iter([])))
     monkeypatch.setattr(reddit_api, "make_client", lambda: reddit)
     main(["--config", cli_cfg, "collect", "reddit", "--subreddit", "SaaS"])
     out = capsys.readouterr().out
-    assert "deletion sync: checked 2 stored Reddit items, removed 1" in out
+    assert "deletion sync: checked 2 stored Reddit items, removed 1 deleted/removed and 0 edited" in out
     left = [r[0] for r in sqlite3.connect(path).execute("SELECT id FROM posts")]
     assert left == ["reddit:t3_alive"]
 
 
 def test_extraction_prompt_forbids_inferring_sensitive_traits():
     assert "sensitive characteristics" in EXTRACT_SYSTEM and "health, politics" in EXTRACT_SYSTEM
+
+
+# ---------------------------------------------------------------- edited content (Developer Terms 3.3: "modified")
+
+
+def stored(kind, title, body, pid):
+    return {"id": f"reddit:{pid}", "kind": kind, "title": title, "body": body}
+
+
+def test_find_outdated_separates_unchanged_edited_and_gone():
+    items = {
+        "t3_same": thing("t3_same", title="Same title", selftext="Same body", removed_by_category=None),
+        "t3_body": thing("t3_body", title="Edited body", selftext="The author rewrote this paragraph", removed_by_category=None),
+        "t3_title": thing("t3_title", title="A brand new title", selftext="Body", removed_by_category=None),
+        "t1_same": thing("t1_same", body="Same comment"),
+        "t1_edit": thing("t1_edit", body="Same comment, plus an edit"),
+        "t3_del": thing("t3_del", title="x", selftext="[deleted]", removed_by_category="deleted"),
+    }
+    rows = [
+        stored("post", "Same title", "Same body", "t3_same"),
+        stored("post", "Edited body", "The original paragraph", "t3_body"),
+        stored("post", "Old title", "Body", "t3_title"),
+        stored("comment", "Re: whatever the parent was", "Same comment", "t1_same"),
+        stored("comment", "Re: parent", "Same comment", "t1_edit"),
+        stored("post", "x", "x", "t3_del"),
+        stored("post", "x", "x", "t3_missing"),
+    ]
+    gone, modified = reddit_api.find_outdated(NS(info=lambda fullnames: (items[n] for n in fullnames if n in items)), rows)
+    assert sorted(gone) == ["reddit:t3_del", "reddit:t3_missing"]
+    assert sorted(modified) == ["reddit:t1_edit", "reddit:t3_body", "reddit:t3_title"]
+
+
+def test_an_item_stored_by_our_own_converter_is_not_flagged_as_edited():
+    s = sub("rt", title="Struggling with invoices every week", score=9)
+    s.selftext = "It takes hours. Mail bob@example.com or call me."  # includes PII that scrub() rewrites on storage
+    post = reddit_api.submission_to_post(s, "r/x")
+    row = {"id": post.id, "kind": post.kind, "title": post.title, "body": post.body}
+    s.fullname = "t3_rt"
+    s.removed_by_category = None
+    assert reddit_api.find_outdated(NS(info=lambda fullnames: iter([s])), [row]) == ([], [])
+
+
+def test_collect_reddit_also_purges_edited_items(cli_cfg, monkeypatch, capsys):
+    main(["--config", cli_cfg, "init"])
+    from painpoint.config import load_config
+    conn = db.connect(load_config(cli_cfg)["db_path"])
+    db.insert_posts(conn, [Post("reddit:t3_ed", "reddit", "r/x", "post", "reddit:t3_ed", "u", "Edited title here", "Original body text here.", NOW)])
+    conn.close()
+    reddit = NS(info=lambda fullnames: iter([thing("t3_ed", title="Edited title here", selftext="Now totally different text.",
+                                                   removed_by_category=None)]),
+                subreddit=lambda n: NS(top=lambda **kw: iter([]), search=lambda *a, **k: iter([])))
+    monkeypatch.setattr(reddit_api, "make_client", lambda: reddit)
+    main(["--config", cli_cfg, "collect", "reddit", "--subreddit", "SaaS"])
+    assert "removed 0 deleted/removed and 1 edited" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- wipe (Data API Terms 6: delete derived data on termination)
+
+
+def test_wipe_requires_confirmation_then_erases_one_source_only(cli_cfg, capsys):
+    main(["--config", cli_cfg, "init"])
+    from painpoint.config import load_config
+    path = load_config(cli_cfg)["db_path"]
+    conn = db.connect(path)
+    db.insert_posts(conn, [
+        Post("reddit:t3_a", "reddit", "r/x", "post", "reddit:t3_a", "u", "Reddit post title", "Reddit body text here.", NOW),
+        Post("hn:1", "hackernews", "Hacker News", "post", "hn:1", "u", "HN post title here", "HN body text here ok.", NOW)])
+    db.save_extraction(conn, "reddit:t3_a", "ok", "m", {"is_pain_point": True, "problem": "p", "summary": "s",
+                       "category": "other", "persona": "x", "urgency": 2, "budget_signal": "none",
+                       "competitors_named": [], "evidence_quote": ""})
+    conn.commit()
+    conn.close()
+    with pytest.raises(SystemExit) as e:
+        main(["--config", cli_cfg, "wipe"])
+    assert "1 'reddit' items would be erased" in str(e.value)
+    main(["--config", cli_cfg, "wipe", "--yes"])
+    assert "erased 1 'reddit' items" in capsys.readouterr().out
+    conn = db.connect(path)
+    assert [r[0] for r in conn.execute("SELECT id FROM posts")] == ["hn:1"]
+    assert conn.execute("SELECT COUNT(*) FROM extractions").fetchone()[0] == 0

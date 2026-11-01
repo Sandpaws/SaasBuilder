@@ -229,3 +229,38 @@ def search_subreddits(reddit, query: str, limit: int = 10) -> list[dict]:
         if len(out) >= limit:
             break
     return out
+
+
+def _current_text(item) -> tuple[str | None, str]:
+    """(title, body) exactly as we would store the item today; title is None for comments (we store a derived one)."""
+    if item.fullname.startswith("t1_"):
+        return None, scrub(getattr(item, "body", "") or "")
+    body = scrub(getattr(item, "selftext", "") or "")
+    if body.strip().lower() in _REMOVED:
+        body = ""
+    return scrub(getattr(item, "title", "") or ""), body
+
+
+def find_outdated(reddit, rows: Iterable[dict]) -> tuple[list[str], list[str]]:
+    """Compare stored Reddit items with Reddit now. Returns (gone_ids, modified_ids).
+
+    Reddit's Developer Terms (3.3) require deleting or modifying content that was deleted, removed *or modified* on
+    Reddit. Rows need id, kind, title and body. Items edited since we stored them are returned so they can be purged
+    and re-collected in their current form.
+    """
+    rows = list(rows)
+    gone: list[str] = []
+    modified: list[str] = []
+    for start in range(0, len(rows), 100):
+        chunk = rows[start : start + 100]
+        names = [r["id"].split(":", 1)[1] for r in chunk]
+        alive = {item.fullname: item for item in reddit.info(fullnames=names)}
+        for row, name in zip(chunk, names):
+            item = alive.get(name)
+            if item is None or _is_gone(item):
+                gone.append(row["id"])
+                continue
+            title, body = _current_text(item)
+            if body != row["body"] or (title is not None and row["kind"] == "post" and title != row["title"]):
+                modified.append(row["id"])
+    return gone, modified

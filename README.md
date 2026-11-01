@@ -15,7 +15,7 @@ below in order, or read `git log` to watch the project grow.
 
 | # | Step | Where | Status |
 |---|---|---|---|
-| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (95 passing). Collectors: Hacker News (no key needed), Reddit (waits on Reddit's API access approval), web pages via Scrapling. Run end to end on synthetic posts only; first run on live data pending |
+| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (99 passing). Collectors: Hacker News (no key needed), Reddit (waits on Reddit's API access approval), web pages via Scrapling. Run end to end on synthetic posts only; first run on live data pending |
 | 2 | **Validate the idea** | not started | planned |
 | 3 | **Build the product** | not started | planned |
 | 4 | **Deploy it** | not started | planned |
