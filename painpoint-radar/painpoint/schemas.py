@@ -51,7 +51,10 @@ class PainExtraction(BaseModel):
         "education",
         "other",
     ]
-    persona: str = Field(description="Who has the problem, <=6 words (e.g. 'solo SaaS founder'); 'unknown' if unclear.")
+    persona: str = Field(
+        description="Job/role relevant to the problem, <=6 words (e.g. 'solo SaaS founder'); never a sensitive "
+        "characteristic; 'unknown' if unclear."
+    )
     current_workaround: Optional[str] = Field(
         default=None, description="What they do today to cope (manual process, spreadsheet, stitched tools)."
     )

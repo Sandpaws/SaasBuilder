@@ -1,0 +1,14 @@
+# Reddit's Data API terms forbid sharing/redistributing Reddit data: never commit databases, exports or reports.
+*.db
+*.db-wal
+*.db-shm
+*.jsonl
+report.md
+scores.csv
+reports/
+data/
+config.yaml
+.env
+.venv/
+__pycache__/
+.pytest_cache/

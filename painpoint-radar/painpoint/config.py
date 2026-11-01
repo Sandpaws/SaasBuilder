@@ -63,6 +63,14 @@ DEFAULTS: dict[str, Any] = {
         "comment_min_score": 1,
         # Comments are high volume; only keep ones that look like complaints/needs.
         "comment_prefilter": True,
+        # Also search each subreddit for complaint phrases (GET /r/{sub}/search); far more on-topic than top posts.
+        "search_queries": [
+            '"is there a tool"', '"is there an app"', '"wish there was"', '"looking for software"',
+            '"alternative to"', '"frustrated with"', '"too expensive"', '"waste hours"',
+        ],
+        "search_sort": "top",          # relevance | hot | top | new | comments
+        "search_time": "year",         # hour|day|week|month|year|all
+        "search_limit": 25,            # posts per query per subreddit
     },
     # Scrapling-based sources (reviews, forums, ...). See config.example.yaml.
     "web_sources": [],

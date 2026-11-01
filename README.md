@@ -15,7 +15,7 @@ below in order, or read `git log` to watch the project grow.
 
 | # | Step | Where | Status |
 |---|---|---|---|
-| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (64 passing). Run end to end on synthetic posts only; the first run on live Reddit data is pending API credentials |
+| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (80 passing). Run end to end on synthetic posts only; the first run on live Reddit data waits on Reddit's API access approval |
 | 2 | **Validate the idea** | not started | planned |
 | 3 | **Build the product** | not started | planned |
 | 4 | **Deploy it** | not started | planned |

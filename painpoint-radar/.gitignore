@@ -12,3 +12,6 @@ config.yaml
 crawl_data/
 /report.md
 /scores.csv
+/reports/
+/data/
+*.jsonl

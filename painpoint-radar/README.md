@@ -37,29 +37,65 @@ cp config.example.yaml config.yaml
 claude                                   # once: sign in with your subscription
 painpoint doctor --search                # one tiny real call per feature: login, structured output, web search
 
-export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=... REDDIT_USER_AGENT="painpoint-radar by u/yourname"
+export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...
+export REDDIT_USER_AGENT="python:com.yourname.painpoint-radar:v0.1.0 (by /u/yourname)"   # Reddit's required format
 painpoint init
-painpoint collect reddit                 # official API; r/SaaS and r/SideProject by default
+painpoint subreddits check SaaS SideProject SomebodyMakeThis   # exists? usable? how big?
+painpoint collect reddit                 # official API; first removes items deleted on Reddit, then collects
 painpoint extract --dry-run              # call count + token estimate
 painpoint extract --limit 200            # start small and watch your usage
 painpoint extract                        # resumes where it stopped, also after a usage limit
 painpoint cluster                        # keyword pass + Claude merge (--no-merge skips the Claude call)
 painpoint solutions --top 15             # web search for existing products
 painpoint report --top 25 --csv scores.csv
+painpoint purge-deleted                  # at least every 48 hours while you hold Reddit data
 ```
 
 Every step is resumable and idempotent: re-running `collect` skips duplicates, `extract` only touches posts without
 a result (`--retry-errors` retries failures), `solutions` skips themes already checked (`--force` to redo). If the
 subscription's usage limit is hit mid-run, `extract` stops cleanly and the next run continues.
 
+## Reddit's rules (read before collecting)
+
+Taken from Reddit's own API guide and Data API terms. Not legal advice; the terms themselves are the authority.
+
+- **Approval first.** Reddit requires approval before any API access, and explicit written approval for commercial use.
+  Credentials alone are not permission. Request access through Reddit's support form and describe this use honestly
+  (read-only market research on a few subreddits, analysed with an LLM, nothing redistributed).
+- **Identify yourself.** The User-Agent must look like `<platform>:<app ID>:<version> (by /u/<username>)`;
+  `collect reddit` warns if it does not. Reddit throttles or blocks unidentified clients.
+- **Rate limit:** 100 queries per minute per client id, averaged over 10 minutes. PRAW reads Reddit's
+  `X-Ratelimit-*` headers and waits, and this tool never runs requests in parallel.
+- **Deleted means deleted.** Content deleted on Reddit must be deleted from your copy, including derived data, and
+  Reddit recommends doing it within 48 hours. `collect reddit` runs a deletion sync first (`GET /api/info` on
+  every stored item); `painpoint purge-deleted` does only that. Purging also erases the bytes (WAL checkpoint and
+  VACUUM). Run it at least every 48 hours while you keep Reddit data.
+- **No sharing.** Do not sell, license or share Reddit data. Never commit the database, exports or reports that
+  quote real posts to a public repo (they are git-ignored; `docs/sample_report.md` is synthetic).
+- **No profiling.** The extraction prompt forbids inferring sensitive traits (health, politics, religion, sexuality,
+  ...), no usernames are stored, and nothing tries to link users to anyone off Reddit. Only the `read` scope is
+  needed; no user-history or write endpoints are used.
+- **No AI training.** Sending posts to Claude for analysis is not training, but check your Claude privacy settings:
+  on consumer plans, as I understand Anthropic's terms, chats and Claude Code sessions can be used to improve models
+  if that setting is on. If it is, switch it off or use the `api` backend, whose commercial terms differ. Verify in
+  Anthropic's current terms.
+- **Why there is no "no-API" scraper here.** Browser extensions, `.json` URLs, `old.reddit.com` parsing and paid
+  scraping tools skip the approval step. Reddit's guide says non-OAuth traffic is blocked and that scraping without
+  approval is prohibited, and exported copies cannot be synced for deletions. If approval is denied, use other
+  sources (below) rather than working around it.
+
 ## Sources
 
 - **Reddit: official API via PRAW.** Needs your own app credentials. Reddit's terms govern what you may do with the
   data, especially for a commercial product, and access rules have been changing; check Reddit's current Data API
   terms (start at redditinc.com/policies) and your access before building on it. Usernames are never read or stored.
+  Besides the listing (`top` of the month by default) it runs a search per complaint phrase (`reddit.search_queries`,
+  e.g. "wish there was", "alternative to"), which finds far more on-topic posts than the top list.
   r/SaaS and r/SideProject are mostly founders and builders, so the "general" pain points you get are weighted toward
   founder problems (finding customers, onboarding, pricing, tooling); the `Who` line in the report shows the persona.
-  If you cannot get API access, use `collect import` with data you are entitled to use.
+  If you cannot get API access, use `collect import` with data you are entitled to use, or other sources whose terms
+  allow it (for example Hacker News, Stack Exchange, GitHub issues/discussions, or app-store reviews; none built yet,
+  and each has its own terms to read first).
 - **Everything else: Scrapling** (`painpoint collect web`). Review sites, forums, directories, changelogs: define
   CSS selectors in `config.yaml` (see `config.example.yaml`). `robots.txt` is obeyed by default; Scrapling drops
   disallowed requests silently, so the CLI prints a warning with the count and another when a source yields 0 items.
@@ -105,18 +141,20 @@ shortlist to validate with interviews, not a verdict.
 
 ## What is and is not verified
 
-64 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
+80 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
 scrubbing, the Reddit and importer converters (fake PRAW objects), the **real Scrapling spider against a local mock
 site** (pagination, rating filter, max pages, robots.txt), the CLI, the Claude Code backend through the real
 subprocess path against a fake `claude` (flags, API-key stripping, usage-limit stop, login errors, missing CLI), and
-the API backend against a fake client.
+the API backend against a fake client, the deletion sync (including a check that purged text is gone from the
+database file), the User-Agent check, complaint-phrase search, and subreddit discovery (all against fake PRAW objects).
 
 **Run for real, end to end, through `claude -p`** (Haiku for extraction, Sonnet for merge and the web-search solution
 check) on the 22 synthetic posts in `tests/data.py`: all steps completed with no errors, the merge turned 11 keyword
 clusters into the 3 true themes, and the solution check returned verified product URLs. That is a plumbing test on
 made-up posts, not evidence about real Reddit data.
 
-**Not yet run for real:** the `api` backend against the live API, live Reddit, real review sites.
+**Not yet run for real:** the `api` backend against the live API, live Reddit (collection, search, deletion sync and
+subreddit checks only ran against fake PRAW objects), real review sites.
 
 ### Measured: batch size
 

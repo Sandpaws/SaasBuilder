@@ -36,12 +36,49 @@ def cmd_init(args, cfg):
     print(f"database ready: {cfg['db_path']}")
 
 
+def _purge_deleted(conn, reddit) -> int:
+    from .collect import reddit_api
+
+    ids = [r[0] for r in conn.execute("SELECT id FROM posts WHERE source = 'reddit'")]
+    removed = db.purge_posts(conn, reddit_api.find_gone(reddit, ids)) if ids else 0
+    print(f"deletion sync: checked {len(ids)} stored Reddit items, removed {removed} deleted/removed "
+          "(with their extractions)." + (" Re-run `painpoint cluster` to refresh themes." if removed else ""))
+    return removed
+
+
+def cmd_purge(args, cfg):
+    from .collect import reddit_api
+
+    _purge_deleted(_conn(cfg), reddit_api.make_client())
+
+
+def cmd_subreddits(args, cfg):
+    from .collect import reddit_api
+
+    reddit = reddit_api.make_client()
+    if args.action == "check":
+        for name in args.names:
+            info = reddit_api.describe_subreddit(reddit, name.removeprefix("r/"))
+            if not info["exists"]:
+                print(f"r/{info['name']}: NOT USABLE - {info['error']}")
+                continue
+            subs = f"{info['subscribers']:,}" if info["subscribers"] is not None else "?"
+            flag = "ok" if info["usable"] else f"not usable ({info['type']}{', NSFW' if info['nsfw'] else ''})"
+            print(f"r/{info['name']}: {flag} | {subs} subscribers | {info['description'][:100]}")
+    else:
+        for info in reddit_api.search_subreddits(reddit, args.query, args.limit):
+            subs = f"{info['subscribers']:,}" if info["subscribers"] is not None else "?"
+            print(f"r/{info['name']}: {subs} subscribers | {info['description'][:100]}")
+
+
 def cmd_collect(args, cfg):
     conn = _conn(cfg)
     if args.source_type == "reddit":
         from .collect import reddit_api
 
         reddit = reddit_api.make_client()
+        if not args.skip_purge:
+            _purge_deleted(conn, reddit)
         names = args.subreddit or cfg["reddit"]["subreddits"]
         failed = []
         for name in names:
@@ -181,6 +218,8 @@ def build_parser() -> argparse.ArgumentParser:
     csub = c.add_subparsers(dest="source_type", required=True)
     r = csub.add_parser("reddit", help="official Reddit API via PRAW")
     r.add_argument("--subreddit", action="append", help="repeatable; defaults to config reddit.subreddits")
+    r.add_argument("--skip-purge", action="store_true",
+                   help="do not first remove stored items that were deleted on Reddit (not recommended)")
     w = csub.add_parser("web", help="Scrapling web sources from config web_sources")
     w.add_argument("--source", action="append", help="repeatable; defaults to all")
     i = csub.add_parser("import", help="import a JSONL/CSV file")
@@ -211,6 +250,18 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--out", default="report.md")
     rp.add_argument("--csv")
     rp.set_defaults(fn=cmd_report)
+
+    sub.add_parser("purge-deleted", help="remove stored Reddit items that were deleted/removed on Reddit "
+                   "(run at least every 48 hours while you keep Reddit data)").set_defaults(fn=cmd_purge)
+
+    sr = sub.add_parser("subreddits", help="check that subreddits exist and are usable, or search for new ones")
+    srsub = sr.add_subparsers(dest="action", required=True)
+    chk = srsub.add_parser("check", help="existence, size and type of the given subreddits")
+    chk.add_argument("names", nargs="+")
+    srch = srsub.add_parser("search", help="find subreddits by keyword")
+    srch.add_argument("query")
+    srch.add_argument("--limit", type=int, default=10)
+    sr.set_defaults(fn=cmd_subreddits)
 
     sub.add_parser("stats", help="row counts").set_defaults(fn=cmd_stats)
 

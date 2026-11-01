@@ -27,6 +27,9 @@ too much); otherwise none. budget_detail holds the amount or phrase.
 - competitors_named: tools or vendors the author names as current or failed solutions.
 - evidence_quote must be copied verbatim from the message (at most 200 characters).
 - Never include usernames, email addresses or other personal identifiers in any field.
+- Never infer or record sensitive characteristics of the author (health, politics, religion, sexuality, ethnicity, \
+age, location, finances beyond what the tool-related problem itself states). `persona` is only the job or role \
+relevant to the problem, such as "freelance designer"; use "unknown" otherwise.
 """
 
 _TAG_BREAK = re.compile(r"</?\s*post\b", re.IGNORECASE)

@@ -114,6 +114,24 @@ def insert_posts(conn: sqlite3.Connection, posts: Iterable) -> tuple[int, int]:
     return inserted, skipped
 
 
+def purge_posts(conn: sqlite3.Connection, ids: Sequence[str]) -> int:
+    """Delete posts and everything derived from them (extractions, cluster membership), then physically erase the
+    bytes (checkpoint the WAL and VACUUM), because deleted content must not be retained even in free pages."""
+    removed = 0
+    for start in range(0, len(ids), 500):
+        chunk = list(ids[start : start + 500])
+        marks = ",".join("?" for _ in chunk)
+        removed += conn.execute(f"DELETE FROM posts WHERE id IN ({marks})", chunk).rowcount
+    conn.execute("DELETE FROM clusters WHERE id NOT IN (SELECT cluster_id FROM cluster_members)")
+    conn.execute("UPDATE clusters SET size = (SELECT COUNT(*) FROM cluster_members WHERE cluster_id = clusters.id)")
+    conn.commit()
+    if removed:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("VACUUM")
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return removed
+
+
 def pending_posts(
     conn: sqlite3.Connection, retry_statuses: Sequence[str] = (), limit: int | None = None
 ) -> list[sqlite3.Row]:

@@ -30,6 +30,14 @@ reddit:
   time_filter: month
   limit: 100
   include_comments: true
+  search_queries:         # one search per phrase in each subreddit; finds on-topic complaints
+    - '"is there a tool"'
+    - '"wish there was"'
+    - '"alternative to"'
+    - '"frustrated with"'
+  search_sort: top
+  search_time: year
+  search_limit: 25
 
 scoring:
   half_life_days: 180

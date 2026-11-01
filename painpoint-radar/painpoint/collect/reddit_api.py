@@ -11,12 +11,26 @@ Usernames are never read or stored.
 from __future__ import annotations
 
 import os
-from typing import Iterator
+import re
+import sys
+from typing import Iterable, Iterator
 
 from .common import Post, looks_like_pain, scrub
 
 REQUIRED_ENV = ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT")
 _REMOVED = {"", "[deleted]", "[removed]"}
+# Reddit asks for: <platform>:<app ID>:<version string> (by /u/<reddit username>)
+USER_AGENT_RE = re.compile(r"^[^:\s]+:[^:\s]+:\S+ \(by /u/[A-Za-z0-9_-]+\)$")
+USER_AGENT_EXAMPLE = "python:com.yourname.painpoint-radar:v0.1.0 (by /u/yourname)"
+
+
+def check_user_agent(user_agent: str) -> str | None:
+    """Return a warning if the User-Agent is not in the format Reddit's API guide requires, else None."""
+    if USER_AGENT_RE.match(user_agent.strip()):
+        return None
+    return (f"REDDIT_USER_AGENT {user_agent!r} does not match Reddit's required format "
+            f"'<platform>:<app ID>:<version> (by /u/<username>)', e.g. {USER_AGENT_EXAMPLE!r}. "
+            "Reddit throttles or blocks unidentified clients.")
 
 
 def make_client():
@@ -30,6 +44,9 @@ def make_client():
             "Missing Reddit credentials in the environment: " + ", ".join(missing)
             + "\nCreate a 'script' app at https://www.reddit.com/prefs/apps (if Reddit still allows it for your account)."
         )
+    warning = check_user_agent(os.environ["REDDIT_USER_AGENT"])
+    if warning:
+        print("WARNING: " + warning, file=sys.stderr)
     return praw.Reddit(
         client_id=os.environ["REDDIT_CLIENT_ID"],
         client_secret=os.environ["REDDIT_CLIENT_SECRET"],
@@ -87,22 +104,22 @@ def comment_to_post(c, parent: Post, cfg: dict) -> Post | None:
 
 
 def collect_subreddit(reddit, name: str, cfg: dict) -> Iterator[Post]:
+    """Listing (top/hot/new/...) plus one search per configured complaint-phrase query. Each post once."""
     sr = reddit.subreddit(name)
-    lister = getattr(sr, cfg["listing"])
-    kwargs = {"limit": cfg["limit"]}
-    if cfg["listing"] in ("top", "controversial"):
-        kwargs["time_filter"] = cfg["time_filter"]
-    for sub in lister(**kwargs):
-        if int(getattr(sub, "score", 0)) < cfg["min_score"]:
-            continue
+    seen: set[str] = set()
+
+    def emit(sub) -> Iterator[Post]:
+        if sub.id in seen or int(getattr(sub, "score", 0)) < cfg["min_score"]:
+            return
+        seen.add(sub.id)
         post = submission_to_post(sub, f"r/{name}")
         if post is None:
-            continue
+            return
         yield post
         if not cfg["include_comments"] or int(getattr(sub, "num_comments", 0)) == 0:
-            continue
+            return
         sub.comment_sort = "top"
-        sub.comments.replace_more(limit=0)
+        sub.comments.replace_more(limit=0)  # drops "load more" stubs without extra requests
         kept = 0
         for c in sub.comments.list():
             cp = comment_to_post(c, post, cfg)
@@ -112,6 +129,17 @@ def collect_subreddit(reddit, name: str, cfg: dict) -> Iterator[Post]:
             kept += 1
             if kept >= cfg["comments_per_post"]:
                 break
+
+    lister = getattr(sr, cfg["listing"])
+    kwargs = {"limit": cfg["limit"]}
+    if cfg["listing"] in ("top", "controversial"):
+        kwargs["time_filter"] = cfg["time_filter"]
+    for sub in lister(**kwargs):
+        yield from emit(sub)
+    for query in cfg.get("search_queries") or []:
+        for sub in sr.search(query, sort=cfg["search_sort"], time_filter=cfg["search_time"],
+                             limit=cfg["search_limit"]):
+            yield from emit(sub)
 
 
 def collect_safely(reddit, name: str, cfg: dict) -> tuple[list[Post], str | None]:
@@ -129,3 +157,75 @@ def collect_safely(reddit, name: str, cfg: dict) -> tuple[list[Post], str | None
         return posts, (f"{type(exc).__name__}: the subreddit may not exist, be private or banned, "
                        "or your credentials lack access")
     return posts, None
+
+
+# ---------------------------------------------------------------- deletion sync
+
+
+def _is_gone(item) -> bool:
+    """True if Reddit now shows this post/comment as deleted or removed."""
+    if getattr(item, "removed_by_category", None):  # posts removed by the author, a mod or Reddit
+        return True
+    text = (getattr(item, "body", None) or getattr(item, "selftext", None) or "").strip().lower()
+    return text in ("[deleted]", "[removed]")
+
+
+def find_gone(reddit, post_ids: Iterable[str]) -> list[str]:
+    """Which of our stored reddit ids (e.g. 'reddit:t3_abc') are deleted/removed or no longer returned by Reddit.
+
+    Reddit's rules require removing content that was deleted on Reddit. Items missing from the response are treated
+    as gone too. Looks up 100 fullnames per request.
+    """
+    ids = list(post_ids)
+    gone: list[str] = []
+    for start in range(0, len(ids), 100):
+        chunk = ids[start : start + 100]
+        names = [i.split(":", 1)[1] for i in chunk]
+        alive = {item.fullname: item for item in reddit.info(fullnames=names)}
+        for pid, name in zip(chunk, names):
+            item = alive.get(name)
+            if item is None or _is_gone(item):
+                gone.append(pid)
+    return gone
+
+
+# ---------------------------------------------------------------- subreddit discovery
+
+
+def describe_subreddit(reddit, name: str) -> dict:
+    """Does r/name exist and is it usable? Reads GET /r/{name}/about (subscribers, type, NSFW, description)."""
+    try:
+        from prawcore.exceptions import PrawcoreException
+    except ImportError:  # pragma: no cover
+        PrawcoreException = ()  # type: ignore[assignment,misc]
+    try:
+        sr = reddit.subreddit(name)
+        info = {
+            "name": name,
+            "exists": True,
+            "subscribers": getattr(sr, "subscribers", None),
+            "active_users": getattr(sr, "accounts_active", None),
+            "type": getattr(sr, "subreddit_type", None),
+            "nsfw": bool(getattr(sr, "over18", False)),
+            "description": (getattr(sr, "public_description", "") or "").strip(),
+        }
+    except PrawcoreException as exc:
+        return {"name": name, "exists": False, "error": f"{type(exc).__name__}: missing, private, banned or no access"}
+    info["usable"] = info["type"] == "public" and not info["nsfw"]
+    return info
+
+
+def search_subreddits(reddit, query: str, limit: int = 10) -> list[dict]:
+    """Find subreddits by title/description (GET /subreddits/search). NSFW and non-public ones are left out."""
+    out = []
+    for sr in reddit.subreddits.search(query, limit=limit * 2):
+        if bool(getattr(sr, "over18", False)) or getattr(sr, "subreddit_type", "public") != "public":
+            continue
+        out.append({
+            "name": sr.display_name,
+            "subscribers": getattr(sr, "subscribers", None),
+            "description": (getattr(sr, "public_description", "") or "").strip(),
+        })
+        if len(out) >= limit:
+            break
+    return out
