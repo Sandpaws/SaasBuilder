@@ -3,7 +3,6 @@
 from types import SimpleNamespace as NS
 
 import pytest
-from prawcore.exceptions import NotFound
 
 from painpoint import db
 from painpoint.cli import main
@@ -153,10 +152,13 @@ def fake_sr(**kw):
 class RaisingSub:
     @property
     def subscribers(self):
+        from prawcore.exceptions import NotFound
         raise NotFound(NS(status_code=404))
 
 
 def test_describe_subreddit_reports_missing_private_and_nsfw():
+    # prawcore ships with the optional `reddit` extra; skip rather than break the suite without it.
+    pytest.importorskip("prawcore")
     reddit = NS(subreddit=lambda n: {"good": fake_sr(), "priv": fake_sr(subreddit_type="private"),
                                      "nsfw": fake_sr(over18=True), "ghost": RaisingSub()}[n])
     good = reddit_api.describe_subreddit(reddit, "good")
@@ -186,6 +188,7 @@ def cli_cfg(tmp_path):
 
 
 def test_subreddits_check_command(cli_cfg, monkeypatch, capsys):
+    pytest.importorskip("prawcore")
     reddit = NS(subreddit=lambda n: fake_sr() if n == "tools" else RaisingSub())
     monkeypatch.setattr(reddit_api, "make_client", lambda: reddit)
     main(["--config", cli_cfg, "subreddits", "check", "r/tools", "saasuser"])

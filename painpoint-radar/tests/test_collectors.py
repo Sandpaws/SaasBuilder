@@ -2,6 +2,8 @@ import csv
 import json
 from types import SimpleNamespace as NS
 
+import pytest
+
 from painpoint import db
 from painpoint.collect import importer, reddit_api
 from painpoint.collect.common import Post, looks_like_pain, scrub
@@ -122,7 +124,7 @@ def test_duplicate_text_and_ids_are_ignored(conn):
 
 
 def test_a_missing_subreddit_is_reported_and_partial_results_are_kept():
-    from prawcore.exceptions import NotFound
+    NotFound = pytest.importorskip("prawcore.exceptions").NotFound  # optional `reddit` extra
 
     def broken_listing(**kwargs):
         yield sub("ok1", title="A perfectly fine long enough post title")
