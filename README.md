@@ -15,7 +15,7 @@ below in order, or read `git log` to watch the project grow.
 
 | # | Step | Where | Status |
 |---|---|---|---|
-| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done. Collectors: Hacker News (no key needed, run live), Reddit (access requested 2026-11-01, waiting for Reddit's reply), web pages via Scrapling. First live run done on Hacker News (2026-11-07); scoring and filtering need tuning before the report can pick an idea |
+| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done. Collectors: Hacker News (no key needed, run live), Reddit (access requested 2026-11-01, waiting for Reddit's reply), web pages via Scrapling. Full run on Hacker News (2026-11-07): 3,215 items, 1,036 pain points, 727 themes, top 10 checked for existing products. Next: a second source, so themes can be confirmed across communities |
 | 2 | **Validate the idea** | not started | planned |
 | 3 | **Build the product** | not started | planned |
 | 4 | **Deploy it** | not started | planned |
@@ -49,3 +49,12 @@ Newest last. Every entry maps to commits in `git log`.
     can stay unchecked.
   - With 210 items almost every theme is mentioned once; repetition needs a much bigger sample.
   Collected data and the report stay local and out of git.
+- **2026-11-07, 15x more data.** Fixed the three scoring and filtering problems above, then widened Hacker News
+  collection: 27 stronger complaint phrases over two years, and every answer in open "what problem do you have?"
+  Ask HN threads. Result: 3,215 items, 1,036 pain points (about 590 Haiku calls, 20 minutes), 727 themes, 10
+  solution checks. Two more fixes came out of looking at that output: one "Tell HN: X is frustrating" thread
+  had become the #1 theme (threads must now be open questions), and paraphrases split across merge batches never
+  met (the merge now runs up to three passes; 871 themes became 727). Top themes are now repeated in 4 to 13 threads,
+  with "moderate" evidence; none can be "strong" yet, because that needs a second community. The clearest gaps the
+  solution checks found: a hard spending cap for pay-as-you-go cloud accounts, verifying that an AI agent's change
+  does what was asked, and automatic fallback when an AI coding subscription hits its limit.
