@@ -77,8 +77,11 @@ def test_url_carries_query_tag_date_filter_and_paging():
 
 
 def cfg_with(**overrides):
+    """The search pass on its own: no Ask HN extras, no thread mining (those have their own tests)."""
     cfg = load_config()
-    cfg["hackernews"].update(queries=['"wish there was"', '"alternative to"'], tags=["comment"], delay_s=0, **overrides)
+    base = dict(queries=['"wish there was"', '"alternative to"'], tags=["comment"], delay_s=0, ask_queries=[])
+    cfg["hackernews"].update({**base, **overrides})
+    cfg["hackernews"]["threads"]["enabled"] = False
     return cfg
 
 
@@ -117,6 +120,87 @@ def test_since_days_sets_the_date_filter():
     assert f"created_at_i%3E{NOW - 30 * 86400}" in urls[0]
 
 
+def test_ask_queries_run_on_ask_hn_only():
+    urls = []
+    cfg = cfg_with(max_per_query=1, ask_queries=['"too expensive"'])
+    hn.collect_hackernews(cfg, lambda u: urls.append(urllib.parse.unquote_plus(u)) or {"hits": []},
+                          sleep=lambda s: None, now=lambda: NOW)
+    expensive = [u for u in urls if "too expensive" in u]
+    assert len(expensive) == 1 and "tags=ask_hn" in expensive[0]
+
+
+# ---------------------------------------------------------------- thread mining
+
+ASK_THREAD = {"objectID": "500", "title": "Ask HN: What tool do you wish existed?", "num_comments": 80}
+OFF_TOPIC = {"objectID": "501", "title": "Ask HN: What apps do you use daily?", "num_comments": 300}
+EXCLUDED = {"objectID": "502", "title": "Ask HN: What problem would you solve with unlimited money? Annoying ones",
+            "num_comments": 90}
+ITEM = {
+    "id": 500, "type": "story", "title": "Ask HN: What tool do you wish existed?", "created_at_i": NOW - 86400,
+    "children": [
+        {"id": 601, "type": "comment", "author": "secret_name", "created_at_i": NOW - 3600,
+         "text": "A tool that reconciles my bank exports with invoices. I do it by hand every month and it takes hours.",
+         "children": [{"id": 701, "type": "comment", "text": "Same here, I would pay for this.", "children": []}]},
+        {"id": 602, "type": "comment", "created_at_i": NOW - 7200,
+         "text": "Something that keeps my dotfiles in sync across machines without me thinking about it at all.",
+         "children": [{"id": 702, "type": "comment", "text": "+1"}, {"id": 703, "type": "comment", "text": "+1"}]},
+        {"id": 603, "type": "comment", "text": "too short", "children": []},
+        {"id": 604, "type": "comment", "text": None, "children": []},  # deleted
+    ],
+}
+
+
+def test_thread_search_url_targets_ask_hn_titles_with_enough_comments():
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(hn.build_thread_search_url("wish existed", NOW - 100, 25)).query)
+    assert q["tags"] == ["ask_hn"] and q["restrictSearchableAttributes"] == ["title"]
+    assert q["numericFilters"] == [f"created_at_i>{NOW - 100},num_comments>=25"]
+
+
+def test_find_threads_keeps_real_asks_biggest_first():
+    tcfg = dict(load_config()["hackernews"]["threads"], title_queries=["wish existed"], max_threads=10)
+    threads, errors = hn.find_threads(tcfg, lambda u: {"hits": [OFF_TOPIC, ASK_THREAD, EXCLUDED]},
+                                      lambda s: None, NOW - 100, 0)
+    assert errors == [] and [t["objectID"] for t in threads] == ["500"]
+
+
+def test_each_top_level_answer_is_its_own_voice_without_the_author():
+    posts = hn.thread_answers(ITEM, min_chars=80, limit=10)
+    assert [p.id for p in posts] == ["hn:602", "hn:601"]  # most-replied first; short and deleted answers skipped
+    assert all(p.thread_id == p.id for p in posts)
+    assert posts[0].num_comments == 2 and posts[0].title == "Re: Ask HN: What tool do you wish existed?"
+    assert "secret_name" not in json.dumps([p.__dict__ for p in posts])
+    assert len(hn.thread_answers(ITEM, min_chars=80, limit=1)) == 1
+
+
+def test_collect_mines_threads_after_searches_and_dedupes():
+    cfg = cfg_with(max_per_query=5)
+    cfg["hackernews"]["threads"].update(enabled=True, title_queries=["wish existed"], max_threads=5)
+
+    def fetch(url):
+        if "/items/500" in url:
+            return ITEM
+        if "restrictSearchableAttributes" in url:
+            return {"hits": [ASK_THREAD]}
+        # the search pass already found answer 601 as an ordinary comment hit
+        return {"hits": [dict(COMMENT, objectID="601", story_id=500)], "nbPages": 1}
+
+    posts, errors = hn.collect_hackernews(cfg, fetch, sleep=lambda s: None, now=lambda: NOW)
+    assert errors == [] and sorted(p.id for p in posts) == ["hn:601", "hn:602"]
+
+
+def test_a_failing_thread_is_reported_and_the_rest_continue():
+    cfg = cfg_with(max_per_query=5, queries=[])
+    cfg["hackernews"]["threads"].update(enabled=True, title_queries=["wish existed"], max_threads=5)
+
+    def fetch(url):
+        if "/items/" in url:
+            raise urllib.error.URLError("down")
+        return {"hits": [ASK_THREAD]}
+
+    posts, errors = hn.collect_hackernews(cfg, fetch, sleep=lambda s: None, now=lambda: NOW)
+    assert posts == [] and len(errors) == 1 and "thread 500" in errors[0]
+
+
 # ---------------------------------------------------------------- CLI
 
 
@@ -138,11 +222,11 @@ def test_collect_hn_command_stores_posts_and_reports_errors(cli_cfg, monkeypatch
 
     monkeypatch.setattr(hn, "fetch_json", fake_fetch)
     monkeypatch.setattr(hn.time, "sleep", lambda s: None)
-    # collect_hackernews binds fetch_json as a default argument, so patch the default as well
-    monkeypatch.setattr(hn.collect_hackernews, "__defaults__", (fake_fetch, lambda s: None, hn.time.time))
     main(["--config", cli_cfg, "collect", "hn", "--query", '"wish there was"', "--query", '"alternative to"'])
     out = capsys.readouterr().out
     assert "hackernews: 2 new, 0 already stored or duplicate" in out and "WARNING" in out
+    # --query is a targeted search: one request per phrase per tag, no Ask HN extras or thread mining
+    assert len(calls) == 4 and not any("restrictSearchableAttributes" in u or "/items/" in u for u in calls)
     main(["--config", cli_cfg, "stats"])
     assert "posts" in capsys.readouterr().out
 

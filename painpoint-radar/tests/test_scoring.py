@@ -78,6 +78,32 @@ def test_intensity_and_wtp(cfg):
     assert 0 < partial["wtp"] < 10
 
 
+def test_one_off_themes_are_pulled_toward_the_sample_average(cfg):
+    from painpoint.scoring import score_all
+    # one thread, maximally angry and willing to pay, against a theme seen in 12 threads with moderate signals
+    one_off = cluster([member(0, urgency=5, budget="willing_to_pay")])
+    one_off["label"] = "one-off"
+    common = cluster([member(100 + i, urgency=3, budget="price_complaint" if i % 2 else "none") for i in range(12)])
+    common["label"] = "common"
+    quiet = cluster([member(200 + i, urgency=2) for i in range(12)])
+    quiet["label"] = "quiet"
+    alone = score_cluster(one_off, cfg, NOW, 25)
+    rows = {r["label"]: r for r in score_all([one_off, common, quiet], cfg, NOW)}
+    assert alone["intensity"] == 10 and alone["wtp"] == 10  # scored on its own: no pull
+    assert rows["one-off"]["intensity"] < 6 and rows["one-off"]["wtp"] < 7
+    assert rows["one-off"]["wtp"] < rows["common"]["wtp"]
+    assert rows["common"]["opportunity"] > rows["one-off"]["opportunity"]
+    cfg["scoring"]["prior_threads"] = 0
+    assert score_all([one_off, common, quiet], cfg, NOW)[0]["wtp"] == 10  # 0 turns the pull off
+
+
+def test_opportunity_before_check_ignores_the_check(cfg):
+    ms = [member(i) for i in range(6)]
+    unchecked = score_cluster(cluster(ms), cfg, NOW, 6)
+    checked = score_cluster(cluster(ms, {"status": "ok", "saturation": 9, "solutions": []}), cfg, NOW, 6)
+    assert checked["opportunity"] < checked["opportunity_before_check"] == unchecked["opportunity"]
+
+
 def test_opportunity_unchecked_uses_neutral_gap_and_flags_it(cfg):
     s = score_cluster(cluster([member(0)]), cfg, NOW, 1)
     assert s["competition_checked"] is False and s["competition_gap"] == 5.0 and s["saturation"] is None

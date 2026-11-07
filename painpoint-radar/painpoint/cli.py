@@ -110,11 +110,17 @@ def cmd_collect(args, cfg):
     elif args.source_type == "hn":
         from .collect import hackernews
 
-        if args.query:
-            cfg["hackernews"]["queries"] = args.query
+        hn = cfg["hackernews"]
+        if args.query:  # a targeted search: only these phrases, no extra Ask HN queries or thread mining
+            hn["queries"] = args.query
+            hn["ask_queries"] = []
+            hn.setdefault("threads", {})["enabled"] = False
         if args.limit:
-            cfg["hackernews"]["max_per_query"] = args.limit
-        posts, errors = hackernews.collect_hackernews(cfg)
+            hn["max_per_query"] = args.limit
+        if args.threads is not None:
+            hn.setdefault("threads", {})["max_threads"] = args.threads
+            hn["threads"]["enabled"] = args.threads > 0
+        posts, errors = hackernews.collect_hackernews(cfg, progress=print)
         ins, skip = db.insert_posts(conn, posts)
         print(f"hackernews: {ins} new, {skip} already stored or duplicate")
         for err in errors:
@@ -251,7 +257,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--skip-purge", action="store_true",
                    help="do not first remove stored items that were deleted on Reddit (not recommended)")
     h = csub.add_parser("hn", help="Hacker News complaint-phrase search (public Algolia API)")
-    h.add_argument("--query", action="append", help="repeatable; replaces config hackernews.queries")
+    h.add_argument("--query", action="append",
+                   help="repeatable; search only these phrases (no Ask HN extras, no thread mining)")
+    h.add_argument("--threads", type=int,
+                   help="how many 'what problem do you have?' Ask HN threads to mine (0 = none)")
     h.add_argument("--limit", type=int, help="max hits per query (use a small number for a test run)")
     w = csub.add_parser("web", help="Scrapling web sources from config web_sources")
     w.add_argument("--source", action="append", help="repeatable; defaults to all")

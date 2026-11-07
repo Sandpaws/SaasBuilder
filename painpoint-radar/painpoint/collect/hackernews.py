@@ -100,41 +100,148 @@ def hit_to_post(hit: dict, min_chars: int = 80) -> Post | None:
     )
 
 
+def build_thread_search_url(query: str, since_ts: int, min_comments: int, per_page: int = 50) -> str:
+    """Ask HN posts whose *title* matches `query` and that drew at least `min_comments` comments."""
+    params = {
+        "query": query,
+        "tags": "ask_hn",
+        "restrictSearchableAttributes": "title",
+        "numericFilters": f"created_at_i>{since_ts},num_comments>={min_comments}",
+        "hitsPerPage": per_page,
+    }
+    return f"{BASE}/search?{urllib.parse.urlencode(params)}"
+
+
+def find_threads(
+    tcfg: dict, fetch: Callable[[str], dict], sleep: Callable[[float], None], since: int, delay: float
+) -> tuple[list[dict], list[str]]:
+    """Ask HN threads that ask people for their problems, biggest first. Title search is loose, so every hit's title
+    must also match `title_pattern` and not `exclude_pattern`."""
+    keep = re.compile(tcfg["title_pattern"], re.IGNORECASE)
+    drop = re.compile(tcfg["exclude_pattern"], re.IGNORECASE) if tcfg.get("exclude_pattern") else None
+    found: dict[str, dict] = {}
+    errors: list[str] = []
+    for query in tcfg["title_queries"]:
+        try:
+            data = fetch(build_thread_search_url(query, since, tcfg["min_comments"]))
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            errors.append(f"threads / {query}: {type(exc).__name__}: {exc}")
+            continue
+        for hit in data.get("hits") or []:
+            title = hit.get("title") or ""
+            oid = str(hit.get("objectID") or "")
+            if oid and keep.search(title) and not (drop and drop.search(title)):
+                found[oid] = hit
+        sleep(delay)
+    ranked = sorted(found.values(), key=lambda h: -int(h.get("num_comments") or 0))
+    return ranked[: tcfg["max_threads"]], errors
+
+
+def thread_answers(item: dict, min_chars: int, limit: int) -> list[Post]:
+    """Top-level answers of one thread (from GET /items/{id}), most-replied first.
+
+    Each answer gets its own thread_id: in a thread that asks "what tool do you wish existed?", every top-level
+    answer is a different person's need, so ten people wanting the same thing should count as ten voices, not as
+    one thread with extra comments. Replies under an answer are not collected; their count is kept as num_comments.
+    """
+    story_title = scrub(f"Re: {item.get('title') or ''}".strip())[:200]
+    answers = []
+    for child in item.get("children") or []:
+        if child.get("type") != "comment" or not child.get("id"):
+            continue
+        body = scrub(html_to_text(child.get("text") or ""))
+        if body in _DEAD or len(body) < min_chars:
+            continue
+        cid = str(child["id"])
+        answers.append(Post(
+            id=f"hn:{cid}",
+            source="hackernews",
+            community="Hacker News",
+            kind="comment",
+            thread_id=f"hn:{cid}",
+            url=f"https://news.ycombinator.com/item?id={cid}",
+            title=story_title,
+            body=body,
+            created_utc=int(child.get("created_at_i") or item.get("created_at_i") or time.time()),
+            upvotes=0,  # the API does not expose comment scores
+            num_comments=len(child.get("children") or []),
+        ))
+    answers.sort(key=lambda p: -p.num_comments)
+    return answers[:limit]
+
+
+def _search(
+    query: str, tag: str, since: int, hn: dict, fetch: Callable[[str], dict], sleep: Callable[[float], None],
+    seen: set[str], posts: list[Post], errors: list[str],
+) -> None:
+    fetched, page = 0, 0
+    while fetched < hn["max_per_query"]:
+        per_page = min(100, hn["max_per_query"] - fetched)
+        try:
+            data = fetch(build_url(query, tag, since, page, per_page, hn["sort"]))
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            errors.append(f"{tag} / {query}: {type(exc).__name__}: {exc}")
+            break
+        hits = data.get("hits") or []
+        for hit in hits:
+            oid = str(hit.get("objectID") or "")
+            if oid in seen:
+                continue
+            seen.add(oid)
+            post = hit_to_post(hit, hn["min_chars"])
+            if post is not None:
+                posts.append(post)
+        fetched += len(hits)
+        page += 1
+        if not hits or page >= int(data.get("nbPages") or 0):
+            break
+        sleep(hn["delay_s"])
+    sleep(hn["delay_s"])
+
+
 def collect_hackernews(
     cfg: dict,
-    fetch: Callable[[str], dict] = fetch_json,
-    sleep: Callable[[float], None] = time.sleep,
-    now: Callable[[], float] = time.time,
+    fetch: Callable[[str], dict] | None = None,
+    sleep: Callable[[float], None] | None = None,
+    now: Callable[[], float] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[list[Post], list[str]]:
-    """Run every (tag, query) search. Returns (posts, error messages); one failing query does not stop the rest."""
+    """Run every search, then mine the matching Ask HN threads. Returns (posts, error messages); one failing request
+    does not stop the rest. fetch/sleep/now default to the real ones, looked up at call time so tests can patch them."""
+    fetch = fetch or fetch_json
+    sleep = sleep or time.sleep
+    now = now or time.time
     hn = cfg["hackernews"]
     since = int(now() - hn["since_days"] * 86400)
     posts: list[Post] = []
     errors: list[str] = []
     seen: set[str] = set()
-    for tag in hn["tags"]:
-        for query in hn["queries"]:
-            fetched, page = 0, 0
-            while fetched < hn["max_per_query"]:
-                per_page = min(100, hn["max_per_query"] - fetched)
-                try:
-                    data = fetch(build_url(query, tag, since, page, per_page, hn["sort"]))
-                except (urllib.error.URLError, OSError, ValueError) as exc:
-                    errors.append(f"{tag} / {query}: {type(exc).__name__}: {exc}")
-                    break
-                hits = data.get("hits") or []
-                for hit in hits:
-                    oid = str(hit.get("objectID") or "")
-                    if oid in seen:
-                        continue
+    searches = [(tag, q) for tag in hn["tags"] for q in hn["queries"]]
+    searches += [("ask_hn", q) for q in hn.get("ask_queries") or []]
+    for i, (tag, query) in enumerate(searches, 1):
+        _search(query, tag, since, hn, fetch, sleep, seen, posts, errors)
+        if progress and i % 10 == 0:
+            progress(f"  searches {i}/{len(searches)}: {len(posts)} items so far")
+
+    tcfg = hn.get("threads") or {}
+    if tcfg.get("enabled") and tcfg.get("max_threads", 0) > 0:
+        thread_since = int(now() - tcfg["since_days"] * 86400)
+        threads, thread_errors = find_threads(tcfg, fetch, sleep, thread_since, hn["delay_s"])
+        errors += thread_errors
+        for i, hit in enumerate(threads, 1):
+            try:
+                item = fetch(f"{BASE}/items/{hit['objectID']}")
+            except (urllib.error.URLError, OSError, ValueError) as exc:
+                errors.append(f"thread {hit['objectID']}: {type(exc).__name__}: {exc}")
+                continue
+            added = 0
+            for post in thread_answers(item, hn["min_chars"], tcfg["max_comments_per_thread"]):
+                oid = post.id.removeprefix("hn:")
+                if oid not in seen:
                     seen.add(oid)
-                    post = hit_to_post(hit, hn["min_chars"])
-                    if post is not None:
-                        posts.append(post)
-                fetched += len(hits)
-                page += 1
-                if not hits or page >= int(data.get("nbPages") or 0):
-                    break
-                sleep(hn["delay_s"])
+                    posts.append(post)
+                    added += 1
+            if progress:
+                progress(f"  thread {i}/{len(threads)}: +{added}  {(hit.get('title') or '')[:70]}")
             sleep(hn["delay_s"])
     return posts, errors

@@ -8,6 +8,11 @@ Competition gap  10 - saturation, where saturation (0-10) comes from the web-sea
 Opportunity /10  weighted blend of the four. If the solution check has not run, the gap defaults to a
                  neutral 5 and the row is flagged competition_checked=False.
 
+Small themes: intensity and WTP are averages, so a theme seen once with one angry, budget-mentioning post would
+score 10/10 on both and outrank themes seen in many threads. score_all() therefore pulls both toward the sample-wide
+average, as if each theme also had `prior_threads` typical threads (a standard Bayesian average): one thread
+counts for 1/(1+3) of its own value, twelve threads for 12/15. score_cluster() on its own scores without that pull.
+
 "Repetition" is relative to what you collected: it measures how often a problem recurs in YOUR sample.
 """
 
@@ -31,13 +36,31 @@ def _top(counter: Counter, n: int) -> list[str]:
     return [k for k, _ in counter.most_common(n)]
 
 
-def score_cluster(cluster: dict, cfg: dict, now: float, total_pain_threads: int) -> dict:
+def _wtp_raw(members: list[dict]) -> float:
+    return sum(BUDGET_WEIGHTS.get(m["budget_signal"], 0.0) for m in members) / len(members)
+
+
+def sample_priors(clusters: list[dict]) -> dict | None:
+    """Sample-wide averages that small themes are pulled toward (see the module docstring)."""
+    members = [m for c in clusters for m in c["members"]]
+    if not members:
+        return None
+    return {"urgency": sum(m["urgency"] for m in members) / len(members), "wtp_raw": _wtp_raw(members)}
+
+
+def score_cluster(
+    cluster: dict, cfg: dict, now: float, total_pain_threads: int, priors: dict | None = None
+) -> dict:
     sc = cfg["scoring"]
     members = cluster["members"]
 
     threads: dict[str, list[dict]] = defaultdict(list)
     for m in members:
         threads[m["thread_id"]].append(m)
+    n_threads = len(threads)
+    # Weight of this theme's own averages against the sample-wide ones; 1.0 (no pull) when scored alone.
+    k = sc.get("prior_threads", 0) if priors else 0
+    own = n_threads / (n_threads + k)
 
     effective = 0.0
     newest_per_thread = []
@@ -50,18 +73,34 @@ def score_cluster(cluster: dict, cfg: dict, now: float, total_pain_threads: int)
     repetition = min(10.0, 10 * math.log10(1 + effective) / math.log10(1 + sc["repetition_ref_mentions"]))
 
     avg_urgency = sum(m["urgency"] for m in members) / len(members)
-    intensity = (avg_urgency - 1) / 4 * 10
     budget_share = sum(1 for m in members if m["budget_signal"] != "none") / len(members)
-    wtp_raw = sum(BUDGET_WEIGHTS.get(m["budget_signal"], 0.0) for m in members) / len(members)
-    wtp = 10 * min(1.0, wtp_raw / sc["wtp_full_share"])
+
+    def to_intensity(urgency: float) -> float:
+        return (urgency - 1) / 4 * 10
+
+    def to_wtp(raw: float) -> float:
+        return 10 * min(1.0, raw / sc["wtp_full_share"])
+
+    intensity = to_intensity(avg_urgency)
+    wtp = to_wtp(_wtp_raw(members))
+    if priors:  # pull the 0-10 scores (after the WTP cap, or the cap would undo the pull)
+        intensity = own * intensity + (1 - own) * to_intensity(priors["urgency"])
+        wtp = own * wtp + (1 - own) * to_wtp(priors["wtp_raw"])
 
     check = cluster.get("check")
     saturation = check["saturation"] if check and check.get("status") == "ok" and check.get("saturation") is not None else None
     gap = (10 - saturation) if saturation is not None else NEUTRAL_GAP
     w = sc["weights"]
-    opportunity = (
-        w["repetition"] * repetition + w["intensity"] * intensity + w["wtp"] * wtp + w["competition_gap"] * gap
-    ) / sum(w.values())
+
+    def blend(gap_value: float) -> float:
+        return (
+            w["repetition"] * repetition + w["intensity"] * intensity + w["wtp"] * wtp + w["competition_gap"] * gap_value
+        ) / sum(w.values())
+
+    opportunity = blend(gap)
+    # The same score with the gap held neutral: what `solutions` ranks by, so checks follow the report's order
+    # before any check has run, and running more checks does not reshuffle which themes come next.
+    opportunity_before_check = blend(NEUTRAL_GAP)
 
     recent = sum(1 for t in newest_per_thread if now - t <= 30 * DAY)
     prior = sum(1 for t in newest_per_thread if 30 * DAY < now - t <= 60 * DAY)
@@ -76,7 +115,6 @@ def score_cluster(cluster: dict, cfg: dict, now: float, total_pain_threads: int)
     else:
         trend = "steady"
 
-    n_threads = len(threads)
     communities = Counter(m["community"] for m in members)
     competitors: Counter = Counter()
     display: dict[str, str] = {}
@@ -118,6 +156,7 @@ def score_cluster(cluster: dict, cfg: dict, now: float, total_pain_threads: int)
         "competition_gap": round(gap, 2),
         "competition_checked": saturation is not None,
         "opportunity": round(opportunity, 2),
+        "opportunity_before_check": round(opportunity_before_check, 2),
         "evidence": evidence,
         "trend": trend,
         "recent_30d": recent,
@@ -138,4 +177,5 @@ def score_cluster(cluster: dict, cfg: dict, now: float, total_pain_threads: int)
 
 def score_all(clusters: list[dict], cfg: dict, now: float) -> list[dict]:
     total_threads = len({m["thread_id"] for c in clusters for m in c["members"]})
-    return [score_cluster(c, cfg, now, total_threads) for c in clusters]
+    priors = sample_priors(clusters)
+    return [score_cluster(c, cfg, now, total_threads, priors) for c in clusters]

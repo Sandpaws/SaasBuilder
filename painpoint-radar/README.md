@@ -41,8 +41,8 @@ export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...
 export REDDIT_USER_AGENT="python:com.yourname.painpoint-radar:v0.1.0 (by /u/yourname)"   # Reddit's required format
 painpoint init
 painpoint subreddits check SaaS SideProject SomebodyMakeThis AppIdeas software smallbusiness Entrepreneur freelance sysadmin selfhosted   # exist? usable? how big?
-painpoint collect hn --limit 20          # Hacker News test run: no key, no approval needed
-painpoint collect hn                     # full run (comments + Ask HN posts matching complaint phrases)
+painpoint collect hn --limit 20 --threads 3   # Hacker News test run: no key, no approval needed
+painpoint collect hn                     # full run: complaint phrases + "what problem do you have?" threads (~3,400 items, 3 min)
 painpoint collect reddit --limit 5       # small Reddit test run (needs approved API access); then drop --limit
 painpoint extract --dry-run              # call count + token estimate
 painpoint extract --limit 200            # start small and watch your usage
@@ -100,11 +100,18 @@ prohibited, and exported copies cannot be synced for deletions. If approval is d
 
 ## Sources
 
-- **Hacker News: public Algolia search API** (`painpoint collect hn`). No key. Searches comments and "Ask HN" posts for
-  complaint phrases (`hackernews.queries`), converts the HTML to text, never reads author names, and runs sequentially
-  with a delay and a User-Agent that names this project. Audience skews toward developers and founders. Check the
-  API's current terms before relying on it. Written from the documented response shape and tested against fixtures;
-  **not yet run against the live service** (it is blocked in the cloud sandbox: allow `hn.algolia.com` or run it locally).
+- **Hacker News: public Algolia search API** (`painpoint collect hn`). No key. Three passes, all sequential with a
+  delay and a User-Agent that names this project; HTML becomes text and author names are never read:
+  1. 27 complaint phrases ("wish there was", "I'd pay for", "there's no good", "ended up building", ...) in comments
+     and Ask HN posts over two years (`hackernews.queries`, up to `max_per_query` hits each).
+  2. A few phrases searched in Ask HN posts only (`ask_queries`): "alternative to" and "too expensive" are chatter in
+     comments but good questions as posts.
+  3. Thread mining (`hackernews.threads`): Ask HN threads that ask people for their problems ("Dev productivity tools
+     you would pay for", "What do you still do manually that should be automated?"). Title search is loose, so a
+     title must also match `title_pattern`. Every top-level answer is collected and counts as its own voice.
+     `--threads N` changes how many threads, `--threads 0` turns it off; `--query` runs only the phrases you give.
+  First full run (2026-11-07): 3,429 items in 3 minutes, from 57 searches and 25 threads. Audience skews toward
+  developers and founders. Check the API's current terms before relying on it.
 - **Reddit: official API via PRAW.** Needs your own app credentials. Reddit's terms govern what you may do with the
   data, especially for a commercial product, and access rules have been changing; check Reddit's current Data API
   terms (start at redditinc.com/policies) and your access before building on it. Usernames are never read or stored.
@@ -116,7 +123,7 @@ prohibited, and exported copies cannot be synced for deletions. If approval is d
   matter. That is up to ~300 posts per subreddit per run and roughly 3,000 requests in total (about 30 minutes at
   Reddit's limit), so make the first run small with `--subreddit` and `--limit`.
   If you cannot get API access, use `collect import` with data you are entitled to use, or other sources whose terms
-  allow it. Hacker News is built (below); Stack Exchange, GitHub issues/discussions and app-store reviews are ideas
+  allow it. Hacker News is built (above); Stack Exchange, GitHub issues/discussions and app-store reviews are ideas
   that are not built yet, and each has its own terms to read first.
 - **Everything else: Scrapling** (`painpoint collect web`). Review sites, forums, directories, changelogs: define
   CSS selectors in `config.yaml` (see `config.example.yaml`). `robots.txt` is obeyed by default; Scrapling drops
@@ -141,10 +148,15 @@ loads its data from a JSON endpoint, which is more stable than HTML selectors), 
 | Score | Meaning |
 |---|---|
 | **Repeated /10** | Log-scaled count of distinct threads where the problem appears (comments inside one thread add a little), recency-weighted (180-day half-life). 1 thread is about 1.5/10, 100 effective mentions is 10/10 (`scoring.repetition_ref_mentions`). Relative to *your* sample. |
-| **Urgency /10** | Mean urgency (1-5 per mention, judged by the model) rescaled. |
-| **Budget /10** | Share of mentions with a money signal: willing to pay, states current spend, complains about price. |
+| **Urgency /10** | Mean urgency (1-5 per mention, judged by the model) rescaled, pulled toward the sample average for themes seen in few threads (below). |
+| **Budget /10** | Share of mentions with a money signal (willing to pay, states current spend, complains about price), pulled toward the sample average the same way. |
 | **Solutions out there** | Saturation 0-10 from a web search. Only products whose URL domain appeared in the real search results are kept; a high score with nothing verifiable is capped at 2/10 with low confidence. |
-| **Opportunity /10** | Weighted blend (0.40 repetition, 0.20 urgency, 0.15 budget, 0.25 competition gap). Unchecked themes use a neutral gap of 5 and are labelled *unchecked*. |
+| **Opportunity /10** | Weighted blend (0.40 repetition, 0.20 urgency, 0.15 budget, 0.25 competition gap). Unchecked themes use a neutral gap of 5 and are labelled *unchecked*. `solutions --top N` checks themes in this order (with the gap held neutral), so it checks the top of the report. |
+
+Urgency and budget are averages, so a theme seen once in one angry, budget-mentioning post would score 10/10 on both
+and outrank problems seen in a dozen threads. Both are therefore blended with the sample average as if every theme
+also had 3 typical threads (`scoring.prior_threads`; 0 turns it off): one thread counts for a quarter of its own
+value, twelve threads for four fifths.
 
 Also reported per theme: threads, mentions, communities, share of all pain threads, trend (last 30 days vs the 30
 before), evidence strength (weak / moderate / strong), tools people name, current workarounds, personas, and quotes

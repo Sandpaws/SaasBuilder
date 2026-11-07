@@ -77,18 +77,52 @@ DEFAULTS: dict[str, Any] = {
         "search_time": "year",         # hour|day|week|month|year|all
         "search_limit": 25,            # posts per query per subreddit
     },
-    # Hacker News via the public Algolia search API: complaint phrases in comments and "Ask HN" posts.
+    # Hacker News via the public Algolia search API. Three passes:
+    #  1. complaint phrases in comments and "Ask HN" posts (`queries` x `tags`);
+    #  2. extra phrases searched in Ask HN posts only (`ask_queries`): too noisy in comments, useful as questions;
+    #  3. `threads`: Ask HN threads that ask people for their problems; every top-level answer is collected.
+    # Phrases were picked from hit counts on the live API (2026-11-07); first-run yield was 35% for comments and
+    # 62% for Ask HN posts.
     "hackernews": {
         "queries": [
-            '"wish there was"', '"is there a tool"', '"is there an app"', '"alternative to"',
-            '"frustrated with"', '"looking for software"', '"too expensive"', '"waste hours"',
+            '"wish there was"', '"is there a tool"', '"is there an app"', '"looking for software"',
+            '"frustrated with"', '"waste hours"', '"hours every week"', '"manual process"',
+            '"I would pay for"', '"I\'d pay for"', '"would happily pay"', '"take my money"',
+            '"why is there no"', '"there is no good"', '"there\'s no good"', '"nothing out there"',
+            '"does anyone know of a"', '"we built our own"', '"ended up building"', '"ended up writing"',
+            '"wrote a script"', '"so frustrating"', '"drives me crazy"', '"biggest pain"',
+            '"I hate how"', '"hard to find a"', '"switched away from"',
         ],
         "tags": ["comment", "ask_hn"],  # Algolia tags; each query runs once per tag
+        # "too expensive" and "alternative to" are mostly chatter in comments (and "too expensive" inflates budget
+        # scores), but "Ask HN: alternative to X?" posts are exactly what we want.
+        "ask_queries": ['"alternative to"', '"too expensive"', '"is there a"'],
         "sort": "search",               # search = relevance, search_by_date = newest first
-        "since_days": 365,
+        "since_days": 730,
         "max_per_query": 100,           # hits per (tag, query)
         "min_chars": 80,                # shortest comment worth analysing
         "delay_s": 1.0,                 # pause between requests
+        "threads": {
+            "enabled": True,
+            # Searched in Ask HN titles (unquoted, so loose); `title_pattern` then keeps only real asks.
+            "title_queries": [
+                "wish existed", "would pay for", "pay to solve", "biggest pain", "biggest problem", "pain points",
+                "should be automated", "still do manually", "tools missing", "problem worth solving",
+                "worst saas", "worst software", "dislike about", "frustrating", "annoying", "tedious",
+                "waste time", "what tool", "what software", "what saas", "need a tool",
+            ],
+            "title_pattern": (
+                r"wish(ed)? .{0,20}(existed|there (was|were))|would (you )?(happily )?pay|pay to solve"
+                r"|pain ?points?|biggest (pain|problem|frustration|challenge|headache)|frustrat|annoy|tedious"
+                r"|manually|automated|missing|worth solving|dislike|worst (saas|software|tool|app|part)"
+                r"|waste (of )?time|need(ed)? an? (tool|app)|sucks"
+            ),
+            "exclude_pattern": r"unlimited (time|money|resources)|who is hiring|who wants to be hired|freelancer\?",
+            "since_days": 1460,
+            "min_comments": 25,
+            "max_threads": 40,          # biggest threads first
+            "max_comments_per_thread": 150,
+        },
     },
     # Scrapling-based sources (reviews, forums, ...). See config.example.yaml.
     "web_sources": [],
@@ -104,6 +138,9 @@ DEFAULTS: dict[str, Any] = {
         "extra_comment_cap": 8,
         "wtp_full_share": 0.35,        # share of mentions with a budget signal that = 10/10
         "min_threads_for_solution_check": 2,
+        # Pull each theme's intensity and WTP toward the sample average as if it had this many extra typical
+        # threads, so a one-off angry post can't outrank a problem seen in many threads. 0 turns it off.
+        "prior_threads": 3,
         "weights": {"repetition": 0.40, "intensity": 0.20, "wtp": 0.15, "competition_gap": 0.25},
     },
     "report": {

@@ -47,7 +47,10 @@ def run_solution_checks(
     scored = score_all(clusters, cfg, time.time())
     by_label = {c["label"]: c for c in clusters}
     min_threads = cfg["scoring"]["min_threads_for_solution_check"]
-    ranked = [s for s in sorted(scored, key=lambda s: -s["repetition"]) if s["threads"] >= min_threads][:top]
+    # Same order as the report (opportunity, with the market gap held neutral), so `--top N` checks the themes
+    # at the top of the report rather than the most-repeated ones further down.
+    order = sorted(scored, key=lambda s: (-s["opportunity_before_check"], -s["repetition"]))
+    ranked = [s for s in order if s["threads"] >= min_threads][:top]
 
     summary = SolutionSummary()
     model = cfg["models"]["solutions"]
