@@ -15,7 +15,7 @@ below in order, or read `git log` to watch the project grow.
 
 | # | Step | Where | Status |
 |---|---|---|---|
-| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (99 passing). Collectors: Hacker News (no key needed), Reddit (access requested 2026-11-01, waiting for Reddit's reply), web pages via Scrapling. Run end to end on synthetic posts only; first run on live data pending |
+| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done. Collectors: Hacker News (no key needed, run live), Reddit (access requested 2026-11-01, waiting for Reddit's reply), web pages via Scrapling. First live run done on Hacker News (2026-11-07); scoring and filtering need tuning before the report can pick an idea |
 | 2 | **Validate the idea** | not started | planned |
 | 3 | **Build the product** | not started | planned |
 | 4 | **Deploy it** | not started | planned |
@@ -36,3 +36,16 @@ Newest last. Every entry maps to commits in `git log`.
   run live).
 - **2026-11-01, asked Reddit for access.** Submitted a read-only Data API request for ten subreddits. Write-up and lessons:
   [`painpoint-radar/docs/reddit-access-request.md`](painpoint-radar/docs/reddit-access-request.md). Waiting for a reply.
+- **2026-11-07, first run on live data.** Ran every step on Hacker News in a cloud environment that allows only
+  `hn.algolia.com`: 210 posts and comments collected in 31 s, 90 pain points extracted (Haiku via `claude -p`, about
+  2 minutes, 1 post retried), 77 themes, 3 solution checks, one report. Nothing in the pipeline broke. The test suite did:
+  it needed the optional Reddit package to even start, now fixed. What the run taught us about report quality:
+  - Ask HN posts are far richer than comments (62% contain a pain point, against 35%).
+  - About a quarter of the pain points are not software problems (cars, coffee brewers, broadband), because nothing
+    tells extraction to drop them.
+  - One budget signal in a one-mention theme scores 10/10, so weak themes jump up the ranking. The "too expensive"
+    search query adds to this, and the cheap model sometimes tags a budget signal that isn't there.
+  - `solutions --top N` picks themes by repetition while the report sorts by opportunity, so the report's top themes
+    can stay unchecked.
+  - With 210 items almost every theme is mentioned once; repetition needs a much bigger sample.
+  Collected data and the report stay local and out of git.

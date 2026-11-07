@@ -176,8 +176,13 @@ check) on the 22 synthetic posts in `tests/data.py`: all steps completed with no
 clusters into the 3 true themes, and the solution check returned verified product URLs. That is a plumbing test on
 made-up posts, not evidence about real Reddit data.
 
+**Run for real on live Hacker News data** (2026-11-07): every step, from `collect hn` to `report`, on 210 real posts
+and comments, with no pipeline errors. What it showed about report quality is in the
+[progress log](../README.md#progress-log). With only `.[dev]` installed, the tests that need PRAW or Scrapling skip
+instead of failing.
+
 **Not yet run for real:** the `api` backend against the live API, live Reddit (collection, search, deletion sync and
-subreddit checks only ran against fake PRAW objects), the Hacker News collector (fixtures only), real review sites.
+subreddit checks only ran against fake PRAW objects), real review sites.
 
 ### Measured: batch size
 
