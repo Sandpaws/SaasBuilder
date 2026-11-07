@@ -117,7 +117,14 @@ DEFAULTS: dict[str, Any] = {
                 r"|manually|automated|missing|worth solving|dislike|worst (saas|software|tool|app|part)"
                 r"|waste (of )?time|need(ed)? an? (tool|app)|sucks"
             ),
-            "exclude_pattern": r"unlimited (time|money|resources)|who is hiring|who wants to be hired|freelancer\?",
+            # Only open questions: each answer is then a different person's problem. A statement ("Tell HN: X is
+            # frustrating") or a yes/no question ("Would you pay for X?") gets answers that all discuss one topic,
+            # and counting each as a separate voice made one such thread the #1 theme in the first full run.
+            "require_question": True,  # a "?" in the title, or an "Ask HN:" prefix
+            "exclude_pattern": (
+                r"^(ask hn:\s*)?(would|is|are|do|does|did|should|can|could|will|has|have)\b"
+                r"|unlimited (time|money|resources)|who is hiring|who wants to be hired|freelancer\?"
+            ),
             "since_days": 1460,
             "min_comments": 25,
             "max_threads": 40,          # biggest threads first
@@ -130,6 +137,9 @@ DEFAULTS: dict[str, Any] = {
         "distance_threshold": 0.8,     # TF-IDF cosine distance for the first, high-precision pass
         "max_global_items": 6000,      # above this, cluster per category to bound memory
         "merge_batch": 300,            # cluster labels per LLM merge call (largest clusters first)
+        # Passes over all labels: the 1st batches the largest clusters together, later ones batch similar labels
+        # together, so paraphrases split across batches still meet. Stops early once a pass merges nothing.
+        "merge_passes": 3,
     },
     "scoring": {
         "half_life_days": 180,         # 0 disables recency weighting

@@ -183,6 +183,35 @@ def test_semantic_merge_joins_paraphrases(loaded, cfg):
     assert members[0] == members[1] == 18  # every mention in exactly one cluster
 
 
+def test_later_merge_passes_join_paraphrases_split_across_batches():
+    from types import SimpleNamespace as NS
+
+    from painpoint.cluster import merge_clusters
+
+    class ThemeMerger:  # merges labels that share their theme word, like a model would
+        calls = 0
+
+        def merge_labels(self, labels):
+            self.calls += 1
+            by_theme = {}
+            for i, label in enumerate(labels):
+                by_theme.setdefault(next(w for w in ("invoice", "onboarding", "churn") if w in label), []).append(i)
+            return NS(status="ok", error=None, groups=[g for g in by_theme.values() if len(g) > 1])
+
+    def c(label, size):
+        return {"label": label, "category": "other", "members": [f"{label}-{i}" for i in range(size)]}
+
+    # By size the batches of 2 are [invoice, onboarding] [churn, invoice] [onboarding, churn]: pass 1 merges nothing.
+    clusters = [c("late invoice payments", 5), c("onboarding new hires", 4), c("customer churn alerts", 3),
+                c("unpaid invoice follow-up", 2), c("onboarding checklist chaos", 2), c("churn after trial", 1)]
+    one, s1 = merge_clusters(clusters, ThemeMerger(), batch_size=2, max_passes=1)
+    many, s3 = merge_clusters(clusters, ThemeMerger(), batch_size=2, max_passes=3)
+    assert len(one) == 6 and s1["merged_groups"] == 0
+    assert len(many) == 3 and s3["merge_passes"] == 3  # passes 2-3 put shared words side by side
+    assert sorted(len(x["members"]) for x in many) == [4, 6, 7]
+    assert {x["label"] for x in many} == {"late invoice payments", "onboarding new hires", "customer churn alerts"}
+
+
 def test_merge_output_is_sanitised(loaded, cfg):
     extracted(loaded, cfg)
 

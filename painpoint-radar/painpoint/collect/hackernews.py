@@ -116,9 +116,11 @@ def find_threads(
     tcfg: dict, fetch: Callable[[str], dict], sleep: Callable[[float], None], since: int, delay: float
 ) -> tuple[list[dict], list[str]]:
     """Ask HN threads that ask people for their problems, biggest first. Title search is loose, so every hit's title
-    must also match `title_pattern` and not `exclude_pattern`."""
+    must also match `title_pattern`, not match `exclude_pattern`, and (with `require_question`) be a question: a "?"
+    or an "Ask HN:" prefix. That drops statements such as "Tell HN: X is frustrating"."""
     keep = re.compile(tcfg["title_pattern"], re.IGNORECASE)
     drop = re.compile(tcfg["exclude_pattern"], re.IGNORECASE) if tcfg.get("exclude_pattern") else None
+    question = tcfg.get("require_question", False)
     found: dict[str, dict] = {}
     errors: list[str] = []
     for query in tcfg["title_queries"]:
@@ -130,8 +132,11 @@ def find_threads(
         for hit in data.get("hits") or []:
             title = hit.get("title") or ""
             oid = str(hit.get("objectID") or "")
-            if oid and keep.search(title) and not (drop and drop.search(title)):
-                found[oid] = hit
+            if not oid or not keep.search(title) or (drop and drop.search(title)):
+                continue
+            if question and "?" not in title and not title.lower().startswith("ask hn:"):
+                continue  # an "Ask HN:" title is a question even without the mark
+            found[oid] = hit
         sleep(delay)
     ranked = sorted(found.values(), key=lambda h: -int(h.get("num_comments") or 0))
     return ranked[: tcfg["max_threads"]], errors

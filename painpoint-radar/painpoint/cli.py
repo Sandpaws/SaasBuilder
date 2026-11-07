@@ -187,7 +187,8 @@ def cmd_cluster(args, cfg):
 
     r = cluster_pain_points(_conn(cfg), cfg, None if args.no_merge else _llm(cfg))
     print(f"{r['mentions']} pain-point mentions -> {r['before_merge']} clusters (keyword pass)"
-          + ("" if args.no_merge else f" -> {r['clusters']} after semantic merge ({r['merged_groups']} merges)"))
+          + ("" if args.no_merge else f" -> {r['clusters']} after semantic merge ({r['merged_groups']} merges, "
+                                      f"{r.get('merge_passes', 1)} pass(es))"))
     if r["merge_errors"]:
         print(f"  WARNING: {r['merge_errors']} merge call(s) failed ({r['merge_error']}); those batches stay unmerged, "
               "so repetition may be understated. Re-run `painpoint cluster`.")

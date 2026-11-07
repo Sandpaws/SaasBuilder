@@ -108,9 +108,12 @@ prohibited, and exported copies cannot be synced for deletions. If approval is d
      comments but good questions as posts.
   3. Thread mining (`hackernews.threads`): Ask HN threads that ask people for their problems ("Dev productivity tools
      you would pay for", "What do you still do manually that should be automated?"). Title search is loose, so a
-     title must also match `title_pattern`. Every top-level answer is collected and counts as its own voice.
+     title must also match `title_pattern` and be an open question: a "?" or "Ask HN:", and not a yes/no question
+     ("Would you pay for X?"). Every top-level answer is collected and counts as its own voice, which is only fair
+     when each answer is a different person's problem: in a "Tell HN: X is frustrating" thread all the answers
+     agree with the title, and the first full run let one such thread become the #1 theme.
      `--threads N` changes how many threads, `--threads 0` turns it off; `--query` runs only the phrases you give.
-  First full run (2026-11-07): 3,429 items in 3 minutes, from 57 searches and 25 threads. Audience skews toward
+  Full run (2026-11-07): 3,215 items in 3 minutes, from 57 searches and 18 threads. Audience skews toward
   developers and founders. Check the API's current terms before relying on it.
 - **Reddit: official API via PRAW.** Needs your own app credentials. Reddit's terms govern what you may do with the
   data, especially for a commercial product, and access rules have been changing; check Reddit's current Data API
@@ -188,8 +191,9 @@ check) on the 22 synthetic posts in `tests/data.py`: all steps completed with no
 clusters into the 3 true themes, and the solution check returned verified product URLs. That is a plumbing test on
 made-up posts, not evidence about real Reddit data.
 
-**Run for real on live Hacker News data** (2026-11-07): every step, from `collect hn` to `report`, on 210 real posts
-and comments, with no pipeline errors. What it showed about report quality is in the
+**Run for real on live Hacker News data** (2026-11-07): every step, from `collect hn` to `report`, first on 210 real
+posts and comments, then on 3,215 (1,036 pain points, about 590 Haiku calls in 20 minutes on a subscription, 2
+posts retried), with no pipeline errors. What each run showed about report quality is in the
 [progress log](../README.md#progress-log). With only `.[dev]` installed, the tests that need PRAW or Scrapling skip
 instead of failing.
 
@@ -205,7 +209,12 @@ your own data.
 ## Known limitations
 
 - Keyword clustering alone misses paraphrases (true paraphrases scored about 0.15 TF-IDF similarity); that is why
-  `cluster` adds a Claude merge pass. Merging happens within batches of 300 labels, largest clusters first.
+  `cluster` adds a Claude merge pass. Merging happens within batches of 300 labels: pass 1 batches the largest
+  clusters together, then up to 2 more passes (`cluster.merge_passes`) put labels that share words in the same batch.
+  On the 2026-11-07 run that took 998 keyword clusters to 727 themes instead of 871 with one pass. Paraphrases that
+  share no words can still end up in different batches.
+- With Haiku at low effort, the "no software could fix it" rule only partly holds: some car, TV or road-sign
+  complaints are still kept. They are mostly one-off themes, which the score blend pushes down the report.
 - "Repeated /10" depends on how much you collected and from where. Collect broadly before comparing themes.
 - A small model in batches can miss pain posts (see above) or misjudge urgency. Spot-check 30-50 results.
 - Reddit comments are optional and prefiltered by a keyword heuristic to control cost.

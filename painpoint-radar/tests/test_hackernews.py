@@ -156,11 +156,17 @@ def test_thread_search_url_targets_ask_hn_titles_with_enough_comments():
     assert q["numericFilters"] == [f"created_at_i>{NOW - 100},num_comments>=25"]
 
 
-def test_find_threads_keeps_real_asks_biggest_first():
+STATEMENT = {"objectID": "503", "title": "Tell HN: Take-home tests without feedback are frustrating", "num_comments": 400}
+YES_NO = {"objectID": "504", "title": "Ask HN: Would you pay for a verified-only social network?", "num_comments": 200}
+OPEN_PAY = {"objectID": "505", "title": "Ask HN: Dev productivity tools you would pay for", "num_comments": 60}  # no "?"
+
+
+def test_find_threads_keeps_open_asks_biggest_first():
     tcfg = dict(load_config()["hackernews"]["threads"], title_queries=["wish existed"], max_threads=10)
-    threads, errors = hn.find_threads(tcfg, lambda u: {"hits": [OFF_TOPIC, ASK_THREAD, EXCLUDED]},
-                                      lambda s: None, NOW - 100, 0)
-    assert errors == [] and [t["objectID"] for t in threads] == ["500"]
+    hits = [OFF_TOPIC, OPEN_PAY, ASK_THREAD, EXCLUDED, STATEMENT, YES_NO]
+    threads, errors = hn.find_threads(tcfg, lambda u: {"hits": hits}, lambda s: None, NOW - 100, 0)
+    # off-topic, "unlimited money", a statement and a yes/no question are all dropped
+    assert errors == [] and [t["objectID"] for t in threads] == ["500", "505"]
 
 
 def test_each_top_level_answer_is_its_own_voice_without_the_author():
