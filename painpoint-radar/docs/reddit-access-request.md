@@ -53,3 +53,18 @@ scraper that skips the API (see "Reddit's rules" in the [README](../README.md#re
 | Declines or does not reply | Carry on with Hacker News and other sources that allow it. Nothing built so far depends on Reddit. |
 
 Meanwhile the pipeline runs on Hacker News, which needs neither a key nor an approval.
+
+## Outcome
+
+**Declined** (reported 2026-11-08; no reason that we know of). Per the plan above, we carry on with sources that
+allow it: Hacker News now, and Stack Exchange, Lemmy (an open Reddit-like network) and Discourse product forums once
+their hosts are allowed and their terms are read.
+
+We decided not to scrape Reddit instead (no "no-API" tools such as browser sessions, `.json` pages or proxies):
+Reddit's policy requires approval for any access, collecting after a refusal is exactly the access that was
+refused, and a product cannot be built on data we may not use commercially. The Reddit collector stays in the code
+in case access is ever granted. Two allowed options remain:
+
+- Read Reddit by hand and write down recurring problems in our own words, to cross-check the report's top themes.
+- Reply on the same ticket and ask what would make the use case acceptable (not a new request: Reddit allows one
+  request per use case).

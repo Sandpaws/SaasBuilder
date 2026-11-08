@@ -15,7 +15,7 @@ below in order, or read `git log` to watch the project grow.
 
 | # | Step | Where | Status |
 |---|---|---|---|
-| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done. Collectors: Hacker News (no key needed, run live), Reddit (access requested 2026-11-01, waiting for Reddit's reply), web pages via Scrapling. Full run on Hacker News (2026-11-07): 3,215 items, 1,036 pain points, 727 themes, top 10 checked for existing products. Next: a second source, so themes can be confirmed across communities |
+| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done. Collectors: Hacker News (no key needed, run live), Stack Exchange, Lemmy and Discourse forums (built, waiting for their hosts to be allowed), Reddit (access declined, see the [write-up](painpoint-radar/docs/reddit-access-request.md#outcome)), web pages via Scrapling. Full run on Hacker News (2026-11-07): 3,215 items, 1,036 pain points, 727 themes, top 10 checked for existing products. Next: a second source, so themes can be confirmed across communities |
 | 2 | **Validate the idea** | not started | planned |
 | 3 | **Build the product** | not started | planned |
 | 4 | **Deploy it** | not started | planned |
@@ -58,3 +58,8 @@ Newest last. Every entry maps to commits in `git log`.
   with "moderate" evidence; none can be "strong" yet, because that needs a second community. The clearest gaps the
   solution checks found: a hard spending cap for pay-as-you-go cloud accounts, verifying that an AI agent's change
   does what was asked, and automatic fallback when an AI coding subscription hits its limit.
+- **2026-11-08, Reddit declined; more sources built.** Reddit turned down the Data API request (no reason that we
+  know of). We will not scrape Reddit instead; why, and the two allowed options left, are in the
+  [write-up](painpoint-radar/docs/reddit-access-request.md#outcome). Built collectors for Stack Exchange, Lemmy (an
+  open Reddit-like network) and Discourse product forums, tested against sample responses; they run once their
+  hosts are allowed in the cloud environment and their terms are read.
