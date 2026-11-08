@@ -210,7 +210,7 @@ def test_collect_reddit_first_removes_items_deleted_on_reddit(cli_cfg, monkeypat
                                            removed_by_category="deleted")]),
         subreddit=lambda n: NS(top=lambda **kw: iter([]), search=lambda *a, **k: iter([])))
     monkeypatch.setattr(reddit_api, "make_client", lambda: reddit)
-    main(["--config", cli_cfg, "collect", "reddit", "--subreddit", "SaaS"])
+    main(["--config", cli_cfg, "collect", "reddit", "--via", "api", "--subreddit", "SaaS"])
     out = capsys.readouterr().out
     assert "deletion sync: checked 2 stored Reddit items, removed 1 deleted/removed and 0 edited" in out
     left = [r[0] for r in sqlite3.connect(path).execute("SELECT id FROM posts")]
@@ -271,7 +271,7 @@ def test_collect_reddit_also_purges_edited_items(cli_cfg, monkeypatch, capsys):
                                                    removed_by_category=None)]),
                 subreddit=lambda n: NS(top=lambda **kw: iter([]), search=lambda *a, **k: iter([])))
     monkeypatch.setattr(reddit_api, "make_client", lambda: reddit)
-    main(["--config", cli_cfg, "collect", "reddit", "--subreddit", "SaaS"])
+    main(["--config", cli_cfg, "collect", "reddit", "--via", "api", "--subreddit", "SaaS"])
     assert "removed 0 deleted/removed and 1 edited" in capsys.readouterr().out
 
 

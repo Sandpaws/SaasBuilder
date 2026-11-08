@@ -6,9 +6,11 @@ whether solutions already exist.
 
 ```
  collect ──► extract ──► cluster ──► solutions ──► report
- PRAW (Reddit API)   Claude, posts   keyword pass +   Claude + web     scored table,
- Scrapling (web)     in small        Claude merge     search, URLs     quotes with links,
- JSONL/CSV import    batches                          verified         CSV
+ Reddit: Agent Reach Claude, posts   keyword pass +   Claude + web     scored table,
+   or PRAW (API)     in small        Claude merge     search, URLs     quotes with links,
+ Hacker News         batches                          verified         CSV
+ Scrapling (web)
+ JSONL/CSV import
 ```
 
 Output example: [`docs/sample_report.md`](docs/sample_report.md) (**synthetic data**, format only).
@@ -37,13 +39,20 @@ cp config.example.yaml config.yaml
 claude                                   # once: sign in with your subscription
 painpoint doctor --search                # one tiny real call per feature: login, structured output, web search
 
+# Reddit through Agent Reach (the default). Install it from GitHub, NOT from PyPI: a different project uses that name.
+uv tool install https://github.com/Panniantong/Agent-Reach/releases/latest/download/agent-reach.zip
+agent-reach setup && agent-reach add reddit   # needs Node and Chrome
+agent-reach check reddit --text          # live test; if it asks for a login: agent-reach login reddit (you log in)
+
+# Your approved Reddit API app: used by `subreddits check`, `purge-deleted` and the deletion sync before each collect
 export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...
 export REDDIT_USER_AGENT="python:com.yourname.painpoint-radar:v0.1.0 (by /u/yourname)"   # Reddit's required format
 painpoint init
 painpoint subreddits check SaaS SideProject SomebodyMakeThis AppIdeas software smallbusiness Entrepreneur freelance sysadmin selfhosted   # exist? usable? how big?
 painpoint collect hn --limit 20          # Hacker News test run: no key, no approval needed
 painpoint collect hn                     # full run (comments + Ask HN posts matching complaint phrases)
-painpoint collect reddit --limit 5       # small Reddit test run (needs approved API access); then drop --limit
+painpoint collect reddit --limit 5       # small Reddit test run through Agent Reach; then drop --limit
+                                         # (add --via api to use the official API, as Reddit approved)
 painpoint extract --dry-run              # call count + token estimate
 painpoint extract --limit 200            # start small and watch your usage
 painpoint extract                        # resumes where it stopped, also after a usage limit
@@ -81,9 +90,9 @@ How we asked, and what we learned: [`docs/reddit-access-request.md`](docs/reddit
 
 | Rule | In this repo |
 |---|---|
-| Approval before any access; truthful identity, one app per use case (guide; Dev Terms 1.4, 2.8, 4.2) | No collection without approved credentials. No "no-API" scraping. `collect reddit` warns if the User-Agent is not `<platform>:<app ID>:<version> (by /u/<username>)`. |
-| Rate limit 100 queries/min per client id (guide) | PRAW reads Reddit's `X-Ratelimit-*` headers and waits; requests are sequential. |
-| Content deleted, removed **or modified** on Reddit must be deleted/updated promptly; Reddit suggests within 48 hours (Dev Terms 3.3; guide) | `collect reddit` first runs a sync (`GET /api/info`, 100 per request) that purges deleted, removed and edited items with their extractions; edited ones are re-collected. `painpoint purge-deleted` does only that: run it at least every 48 hours while you hold Reddit data. Purging erases the bytes (WAL checkpoint + VACUUM). |
+| Approval before any access; truthful identity, one app per use case (guide; Dev Terms 1.4, 2.8, 4.2) | `--via api` needs approved credentials and warns if the User-Agent is not `<platform>:<app ID>:<version> (by /u/<username>)`. **`--via agent-reach`, the default, does not use the API and is not covered by the approval**: see [Collecting through Agent Reach](#collecting-through-agent-reach-the-default). |
+| Rate limit 100 queries/min per client id (guide) | PRAW reads Reddit's `X-Ratelimit-*` headers and waits; requests are sequential. Agent Reach spaces Reddit searches at least 10 s apart; the collector calls it one request at a time and stops on a rate limit. |
+| Content deleted, removed **or modified** on Reddit must be deleted/updated promptly; Reddit suggests within 48 hours (Dev Terms 3.3; guide) | `collect reddit` first runs a sync (`GET /api/info`, 100 per request) that purges deleted, removed and edited items with their extractions; edited ones are re-collected. `painpoint purge-deleted` does only that: run it at least every 48 hours while you hold Reddit data. Purging erases the bytes (WAL checkpoint + VACUUM). The sync needs the API credentials even with Agent Reach; comments collected through Agent Reach have no Reddit ID and are handled as described below. |
 | On termination, delete all Reddit data "and any data or models derived" from it (Data API 6; Dev Terms 8.2) | `painpoint wipe --yes` erases every Reddit item and everything derived from it. Delete `report.md` and CSV exports yourself. |
 | No selling, sharing or redistributing Reddit data (guide; Dev Terms 4.1-4.2) | Data stays local. Databases, exports and reports are git-ignored; `docs/sample_report.md` is synthetic. Never publish real quotes. |
 | Attribution when you display User Content: link back, cite the username, say it is from Reddit (Dev Terms 5.2) | Reports link every quote to its source. We deliberately do not store usernames, so **do not show or publish Reddit quotes to anyone** unless Reddit agrees how to attribute them. |
@@ -94,9 +103,35 @@ How we asked, and what we learned: [`docs/reddit-access-request.md`](docs/reddit
 
 The Reddit Ads API and Devvit (for non-commercial apps) are not used here.
 
-**Why there is no "no-API" scraper.** Browser extensions, `.json` URLs, `old.reddit.com` parsing and paid scraping
-tools skip the approval step. Reddit's guide says non-OAuth traffic is blocked and scraping without approval is
-prohibited, and exported copies cannot be synced for deletions. If approval is denied, use other sources (below).
+### Collecting through Agent Reach (the default)
+
+Reddit approved our API access, and we then chose [Agent Reach](https://github.com/Panniantong/Agent-Reach) as the
+default way to collect from Reddit. This replaced our earlier decision not to build a scraper that skips the API.
+Agent Reach runs OpenCLI in its own browser, logged in to your Reddit account, and reads the JSON the website itself
+loads. It does not go through the Data API, so:
+
+- **Reddit's approval does not cover it.** We were approved for the app we described: PRAW, OAuth, `read` scope.
+  Reddit's guide says scraping without approval is prohibited, and Reddit can suspend access for breaches. Collecting
+  this way can put the approved app and the account you log in with at risk. Agent Reach itself warns that
+  platforms may restrict accounts used for automated access.
+- **The rules for the data still apply.** No usernames are stored (Agent Reach returns them; the collector drops
+  them). Personal data is scrubbed, the data stays local, and the deletion sync and `wipe` work as above.
+- **The deletion sync still needs the API app.** Agent Reach cannot look items up by ID. `collect reddit` runs the
+  sync with your `REDDIT_*` credentials when they are set, and warns when they are not. Posts get the same IDs
+  either way, so the sync checks them. Comments come back without a Reddit ID. They are removed with their thread,
+  and replaced each time the thread is read again: comments that were deleted or edited, or that are no longer among
+  the top ones returned, are dropped.
+- **It reads somewhat different things.**
+  - The subreddit's hot listing, instead of `listing`/`time_filter`.
+  - Search by relevance over all time: Agent Reach accepts no sort or time options. Each search is kept inside the
+    subreddit with Reddit's `subreddit:` operator, and results older than `search_time` are dropped afterwards.
+  - The comments of the 20 highest-scoring threads per subreddit (`agent_reach.comment_threads`), one browser page
+    each, without comment dates (the thread's date is used).
+- **It is not faster.** Agent Reach spaces Reddit searches at least 10 seconds apart. A full default run makes 80
+  searches, which alone take over 13 minutes, plus 10 listings and up to 200 thread reads.
+- **It stops instead of retrying, as Agent Reach asks.** That happens on a login, verification (captcha), rate-limit,
+  busy or setup problem, or after 3 failed calls in a row. Everything collected before the stop is saved.
+- **To use the approved route** instead, run `collect reddit --via api`, or set `reddit.via: api` in `config.yaml`.
 
 ## Sources
 
@@ -105,7 +140,9 @@ prohibited, and exported copies cannot be synced for deletions. If approval is d
   with a delay and a User-Agent that names this project. Audience skews toward developers and founders. Check the
   API's current terms before relying on it. Written from the documented response shape and tested against fixtures;
   **not yet run against the live service** (it is blocked in the cloud sandbox: allow `hn.algolia.com` or run it locally).
-- **Reddit: official API via PRAW.** Needs your own app credentials. Reddit's terms govern what you may do with the
+- **Reddit: Agent Reach (default) or the official API via PRAW.** Agent Reach needs Node, Chrome and a Reddit login
+  in its browser; read [Collecting through Agent Reach](#collecting-through-agent-reach-the-default) first. PRAW
+  needs your own app credentials. Reddit's terms govern what you may do with the
   data, especially for a commercial product, and access rules have been changing; check Reddit's current Data API
   terms (start at redditinc.com/policies) and your access before building on it. Usernames are never read or stored.
   Besides the listing (`top` of the month by default) it runs a search per complaint phrase (`reddit.search_queries`,
@@ -163,7 +200,10 @@ shortlist to validate with interviews, not a verdict.
 
 ## What is and is not verified
 
-99 tests pass on Python 3.11 and 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`): scoring maths, dedup,
+116 tests pass on Python 3.13 (`pip install -e ".[dev,reddit,scrape]" && pytest`; the 99 before Agent Reach also
+passed on 3.11): the Agent Reach collector through the real subprocess path against a fake `agent-reach`
+(envelope parsing, empty results, stop codes, the failure limit, comment refresh, deletion sync of comments without
+an ID), scoring maths, dedup,
 scrubbing, the Reddit and importer converters (fake PRAW objects), the **real Scrapling spider against a local mock
 site** (pagination, rating filter, max pages, robots.txt), the CLI, the Claude Code backend through the real
 subprocess path against a fake `claude` (flags, API-key stripping, usage-limit stop, login errors, missing CLI), and
@@ -178,6 +218,10 @@ made-up posts, not evidence about real Reddit data.
 
 **Not yet run for real:** the `api` backend against the live API, live Reddit (collection, search, deletion sync and
 subreddit checks only ran against fake PRAW objects), the Hacker News collector (fixtures only), real review sites.
+The Agent Reach collector ran against the real `agent-reach` 1.6.1 CLI only up to its setup step, because the cloud
+sandbox blocks the download of OpenCLI's browser extension. That run confirmed the commands, the envelope and the stop
+after 3 failures. The row fields come from reading the Agent Reach 1.6.1 and OpenCLI 2.0.3 source, not from live
+Reddit.
 
 ### Measured: batch size
 
@@ -200,7 +244,7 @@ your own data.
 painpoint/  config.py  db.py  schemas.py  prompts.py
             llm.py            # Anthropic API backend + shared helpers
             cc_backend.py     # Claude Code (`claude -p`) backend
-            collect/{reddit_api,hackernews,web_spider,importer,common}.py
+            collect/{agent_reach,reddit_api,hackernews,web_spider,importer,common}.py
             extract.py  cluster.py  solutions.py  scoring.py  report.py  cli.py
 tests/      fake Anthropic client, fake `claude` executable, synthetic fixtures (tests/data.py is made up)
 ```

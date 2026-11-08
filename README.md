@@ -15,7 +15,7 @@ below in order, or read `git log` to watch the project grow.
 
 | # | Step | Where | Status |
 |---|---|---|---|
-| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (99 passing). Collectors: Hacker News (no key needed), Reddit (access requested 2026-11-01, waiting for Reddit's reply), web pages via Scrapling. Run end to end on synthetic posts only; first run on live data pending |
+| 1 | **Find what to build.** Collect public posts and reviews, extract user pain points with Claude, score how often each repeats, and check whether solutions already exist | [`painpoint-radar/`](painpoint-radar/) | Code and tests done (116 passing). Collectors: Hacker News (no key needed), Reddit through Agent Reach (default) or the official API (approved 2026-11-08), web pages via Scrapling. Run end to end on synthetic posts only; first run on live data pending |
 | 2 | **Validate the idea** | not started | planned |
 | 3 | **Build the product** | not started | planned |
 | 4 | **Deploy it** | not started | planned |
@@ -36,3 +36,9 @@ Newest last. Every entry maps to commits in `git log`.
   run live).
 - **2026-11-01, asked Reddit for access.** Submitted a read-only Data API request for ten subreddits. Write-up and lessons:
   [`painpoint-radar/docs/reddit-access-request.md`](painpoint-radar/docs/reddit-access-request.md). Waiting for a reply.
+- **2026-11-08, Reddit said yes; we chose Agent Reach anyway.** Reddit approved our API access. We then made
+  [Agent Reach](https://github.com/Panniantong/Agent-Reach) the default Reddit collector. It reads Reddit through a
+  logged-in browser instead of the API, so the approval does not cover it, and it can put the account and the approved
+  app at risk. The approved route stays available as `collect reddit --via api`, and the API app still runs the
+  deletion sync. The trade-offs are written down in
+  [Collecting through Agent Reach](painpoint-radar/README.md#collecting-through-agent-reach-the-default).

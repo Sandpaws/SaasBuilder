@@ -1,6 +1,12 @@
 # Asking Reddit for API access
 
-**Status:** submitted 2026-11-01, waiting for Reddit's reply.
+**Status:** submitted 2026-11-01. **Approved**: Reddit granted API access (we heard on 2026-11-08). The exact
+terms, including the answers to the two open questions below, are not recorded here yet.
+
+**What we did next:** we made [Agent Reach](https://github.com/Panniantong/Agent-Reach), a browser-session tool, the
+default Reddit collector, and kept the approved PRAW route as `collect reddit --via api`. Agent Reach does not use the
+Data API, so this approval does not cover it. Why that matters, and what the tool still does to follow Reddit's rules
+about the data: README, [Collecting through Agent Reach](../README.md#collecting-through-agent-reach-the-default).
 
 This page records how we asked and why, so you can do the same. It describes the request as drafted; the ticket Reddit
 received is the authority on exact wording.

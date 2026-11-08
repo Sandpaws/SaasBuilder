@@ -23,8 +23,12 @@ llm:
   use_fallbacks: auto   # api backend: on for models that support it (not Haiku 5.5); false on Bedrock/Vertex/Foundry
 
 reddit:
-  # Uses the official API through PRAW. Needs REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET / REDDIT_USER_AGENT.
+  # agent_reach = Agent Reach drives a browser logged in to your Reddit account (not the API; see the README's
+  #               "Collecting through Agent Reach" before using it). Settings in the agent_reach section below.
+  # api         = the official API through PRAW, the access Reddit approved. Needs REDDIT_CLIENT_ID /
+  #               REDDIT_CLIENT_SECRET / REDDIT_USER_AGENT (also used for the deletion sync with agent_reach).
   # Check Reddit's Data API terms and your access before using the data commercially.
+  via: agent_reach
   subreddits:             # check each with `painpoint subreddits check NAME` once you have API access
     - SaaS                # builders and founders
     - SideProject
@@ -45,9 +49,14 @@ reddit:
     - '"wish there was"'
     - '"alternative to"'
     - '"frustrated with"'
-  search_sort: top
-  search_time: year
+  search_sort: top        # api only; Agent Reach searches by relevance
+  search_time: year       # with agent_reach, older search results are dropped after the fact
   search_limit: 25
+
+agent_reach:              # used when reddit.via is agent_reach; install from GitHub, not PyPI (see README)
+  command: agent-reach
+  timeout_s: 90           # per call; Agent Reach spaces Reddit searches at least 10 s apart
+  comment_threads: 20     # threads per subreddit whose comments are read, one browser page each
 
 hackernews:               # public Algolia API, no key; run: painpoint collect hn
   tags: [comment, ask_hn]

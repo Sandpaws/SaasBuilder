@@ -22,6 +22,17 @@ _REMOVED = {"", "[deleted]", "[removed]"}
 # Reddit asks for: <platform>:<app ID>:<version string> (by /u/<reddit username>)
 USER_AGENT_RE = re.compile(r"^[^:\s]+:[^:\s]+:\S+ \(by /u/[A-Za-z0-9_-]+\)$")
 USER_AGENT_EXAMPLE = "python:com.yourname.painpoint-radar:v0.1.0 (by /u/yourname)"
+# Ids we can look up with GET /api/info. Comments collected through Agent Reach have none (see agent_reach.py).
+_FULLNAME_ID = re.compile(r"^reddit:t[13]_[a-z0-9]+$")
+
+
+def has_credentials() -> bool:
+    return all(os.environ.get(k) for k in REQUIRED_ENV)
+
+
+def has_fullname(post_id: str) -> bool:
+    """True for a stored id Reddit's API can check ('reddit:t3_abc', 'reddit:t1_xyz')."""
+    return bool(_FULLNAME_ID.match(post_id))
 
 
 def check_user_agent(user_agent: str) -> str | None:

@@ -160,5 +160,5 @@ def test_reddit_limit_flag_shrinks_a_test_run(cli_cfg, monkeypatch, capsys):
 
     reddit = NS(info=lambda fullnames: iter([]), subreddit=lambda n: NS(top=top, search=search))
     monkeypatch.setattr(reddit_api, "make_client", lambda: reddit)
-    main(["--config", cli_cfg, "collect", "reddit", "--subreddit", "SaaS", "--limit", "5"])
+    main(["--config", cli_cfg, "collect", "reddit", "--via", "api", "--subreddit", "SaaS", "--limit", "5"])
     assert seen["top"]["limit"] == 5 and seen["search"]["limit"] == 5

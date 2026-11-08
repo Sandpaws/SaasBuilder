@@ -37,16 +37,62 @@ def cmd_init(args, cfg):
 
 
 def _purge_deleted(conn, reddit) -> int:
-    """Remove stored Reddit items that were deleted, removed or edited on Reddit (edited ones are re-collected)."""
+    """Remove stored Reddit items that were deleted, removed or edited on Reddit (edited ones are re-collected).
+
+    Comments collected through Agent Reach have no Reddit id, so the API cannot check them one by one: they go when
+    their thread goes, and `collect reddit --via agent-reach` replaces them whenever it reads the thread again."""
     from .collect import reddit_api
 
-    rows = [dict(r) for r in conn.execute("SELECT id, kind, title, body FROM posts WHERE source = 'reddit'")]
-    gone, modified = reddit_api.find_outdated(reddit, rows) if rows else ([], [])
-    removed = db.purge_posts(conn, gone + modified)
-    print(f"deletion sync: checked {len(rows)} stored Reddit items, removed {len(gone)} deleted/removed and "
+    rows = [dict(r) for r in conn.execute("SELECT id, kind, title, body, thread_id FROM posts WHERE source = 'reddit'")]
+    checkable = [r for r in rows if reddit_api.has_fullname(r["id"])]
+    gone, modified = reddit_api.find_outdated(reddit, checkable) if checkable else ([], [])
+    dropped = set(gone) | set(modified)
+    orphans = [r["id"] for r in rows if not reddit_api.has_fullname(r["id"]) and r["thread_id"] in dropped]
+    removed = db.purge_posts(conn, gone + modified + orphans)
+    print(f"deletion sync: checked {len(checkable)} stored Reddit items, removed {len(gone)} deleted/removed and "
           f"{len(modified)} edited (edited ones are re-collected if they appear again)."
+          + (f" Also removed {len(orphans)} Agent Reach comments from those threads." if orphans else "")
           + (" Re-run `painpoint cluster` to refresh themes." if removed else ""))
     return removed
+
+
+def _collect_reddit_agent_reach(conn, args, cfg, rcfg, names) -> None:
+    from .collect import agent_reach, reddit_api
+
+    print("Collecting Reddit through Agent Reach (a browser logged in to your Reddit account), not Reddit's "
+          "official API. Reddit's approval covers `--via api` only; see \"Reddit's rules\" in the README.")
+    if not args.skip_purge:
+        if reddit_api.has_credentials():
+            _purge_deleted(conn, reddit_api.make_client())
+        else:
+            print("WARNING: deletion sync skipped. It uses your approved Reddit API app (set REDDIT_CLIENT_ID, "
+                  "REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT); Agent Reach cannot look items up by id. "
+                  "Run `painpoint purge-deleted` with them at least every 48 hours.")
+    ar_cfg = dict(cfg["agent_reach"])
+    if args.limit:
+        ar_cfg["comment_threads"] = min(ar_cfg["comment_threads"], args.limit)
+    ar = agent_reach.AgentReach(ar_cfg["command"], ar_cfg["timeout_s"])
+    for name in names:
+        res = agent_reach.collect_subreddit(ar, name, rcfg, ar_cfg)
+        # A re-read thread replaces its Agent Reach comments: ones deleted, edited or no longer returned go.
+        stale = [cid for tid, fresh in res.threads_read.items()
+                 for (cid,) in conn.execute("SELECT id FROM posts WHERE thread_id = ? AND kind = 'comment'", (tid,))
+                 if not reddit_api.has_fullname(cid) and cid not in fresh]
+        if stale:
+            db.purge_posts(conn, stale)
+        ins, skip = db.insert_posts(conn, res.posts)
+        print(f"r/{name}: {ins} new, {skip} already stored or duplicate"
+              + (f", {len(stale)} outdated comments removed" if stale else ""))
+        for warning in res.warnings:
+            print(f"  WARNING r/{name}: {warning}")
+        if res.stop:
+            # Agent Reach's hints for generic failures are written for an AI agent; point the person at its checks.
+            hint = (res.stop.hint if res.stop.code not in ("UPSTREAM_BROKEN", "TIMEOUT")
+                    else "Check the channel with `agent-reach doctor --text` and `agent-reach check reddit --text`.")
+            sys.exit(f"Agent Reach stopped the run: {res.stop.code}: {res.stop.message}"
+                     + (f"\n  {hint}" if hint else "")
+                     + "\nEverything collected before this is saved. Do not retry in a loop or switch accounts; "
+                       "fix the cause (e.g. `agent-reach login reddit`, or wait out a rate limit), then run collect again.")
 
 
 def cmd_wipe(args, cfg):
@@ -89,14 +135,20 @@ def cmd_collect(args, cfg):
     if args.source_type == "reddit":
         from .collect import reddit_api
 
-        reddit = reddit_api.make_client()
-        if not args.skip_purge:
-            _purge_deleted(conn, reddit)
         names = args.subreddit or cfg["reddit"]["subreddits"]
         rcfg = dict(cfg["reddit"])
         if args.limit:  # small test run: fewer posts per listing and per search query
             rcfg["limit"] = args.limit
             rcfg["search_limit"] = min(rcfg["search_limit"], args.limit)
+        via = (args.via or cfg["reddit"]["via"]).replace("-", "_")
+        if via == "agent_reach":
+            _collect_reddit_agent_reach(conn, args, cfg, rcfg, names)
+            return
+        if via != "api":
+            sys.exit(f"unknown reddit.via {via!r}; use 'agent_reach' or 'api'")
+        reddit = reddit_api.make_client()
+        if not args.skip_purge:
+            _purge_deleted(conn, reddit)
         failed = []
         for name in names:
             posts, error = reddit_api.collect_safely(reddit, name, rcfg)
@@ -245,7 +297,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     c = sub.add_parser("collect", help="collect posts")
     csub = c.add_subparsers(dest="source_type", required=True)
-    r = csub.add_parser("reddit", help="official Reddit API via PRAW")
+    r = csub.add_parser("reddit", help="Reddit through Agent Reach (default) or the official API via PRAW")
+    r.add_argument("--via", choices=["agent-reach", "api"],
+                   help="agent-reach = Agent Reach browser session; api = official Data API via PRAW "
+                        "(what Reddit approved). Defaults to config reddit.via")
     r.add_argument("--subreddit", action="append", help="repeatable; defaults to config reddit.subreddits")
     r.add_argument("--limit", type=int, help="posts per listing and per search query (small number = test run)")
     r.add_argument("--skip-purge", action="store_true",

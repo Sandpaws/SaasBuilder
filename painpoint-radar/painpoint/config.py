@@ -52,6 +52,10 @@ DEFAULTS: dict[str, Any] = {
         "claude-haiku-5-5": [0.10, 0.50],
     },
     "reddit": {
+        # How `collect reddit` reaches Reddit:
+        #   agent_reach = Agent Reach driving a browser logged in to your Reddit account (see the "agent_reach" section)
+        #   api         = Reddit's official Data API through PRAW: the access Reddit approved for this project
+        "via": "agent_reach",
         "subreddits": [
             "SaaS", "SideProject",                          # builders and founders
             "SomebodyMakeThis", "AppIdeas", "software",     # people asking for tools to exist
@@ -76,6 +80,14 @@ DEFAULTS: dict[str, Any] = {
         "search_sort": "top",          # relevance | hot | top | new | comments
         "search_time": "year",         # hour|day|week|month|year|all
         "search_limit": 25,            # posts per query per subreddit
+    },
+    # Agent Reach (github.com/Panniantong/Agent-Reach), used when reddit.via is agent_reach. It reads the hot listing
+    # instead of `listing`/`time_filter`, and its search ignores `search_sort`; results older than `search_time`
+    # are dropped after the fact.
+    "agent_reach": {
+        "command": "agent-reach",
+        "timeout_s": 90,               # per call; Agent Reach spaces Reddit searches at least 10 s apart
+        "comment_threads": 20,         # threads per subreddit whose comments are read, one browser page each
     },
     # Hacker News via the public Algolia search API: complaint phrases in comments and "Ask HN" posts.
     "hackernews": {
