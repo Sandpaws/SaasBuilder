@@ -43,6 +43,9 @@ painpoint init
 painpoint subreddits check SaaS SideProject SomebodyMakeThis AppIdeas software smallbusiness Entrepreneur freelance sysadmin selfhosted   # exist? usable? how big?
 painpoint collect hn --limit 20 --threads 3   # Hacker News test run: no key, no approval needed
 painpoint collect hn                     # full run: complaint phrases + "what problem do you have?" threads (~3,400 items, 3 min)
+painpoint collect stackexchange --limit 20   # Software Recommendations, Super User, Web Apps (read the API terms first)
+painpoint collect lemmy --limit 20       # programming.dev + lemmy.world (read each instance's rules first)
+painpoint collect discourse --limit 20   # feature-request categories of product forums (read each forum's /tos first)
 painpoint collect reddit --limit 5       # small Reddit test run (needs approved API access); then drop --limit
 painpoint extract --dry-run              # call count + token estimate
 painpoint extract --limit 200            # start small and watch your usage
@@ -115,6 +118,24 @@ prohibited, and exported copies cannot be synced for deletions. If approval is d
      `--threads N` changes how many threads, `--threads 0` turns it off; `--query` runs only the phrases you give.
   Full run (2026-11-07): 3,215 items in 3 minutes, from 57 searches and 18 threads. Audience skews toward
   developers and founders. Check the API's current terms before relying on it.
+- **Stack Exchange: official API** (`painpoint collect stackexchange`). Software Recommendations is collected whole
+  (every question is "I need software that does X"); Super User and Web Applications are searched for complaint
+  phrases. Questions only, with score and answer count; no author names. 300 requests a day without a key, 10,000
+  with a free app key (`STACKEXCHANGE_KEY`); the API's `backoff` is honoured. Content is CC BY-SA, so a quote shown
+  to anyone needs the author's name, which we don't store: keep reports private.
+- **Lemmy: each instance's public API** (`painpoint collect lemmy`). The open, federated Reddit-like network;
+  defaults are `programming.dev` (coders) and `lemmy.world` (general). Searches posts and comments for complaint
+  phrases; copies federated to several instances are stored once (keyed by their ActivityPub URL).
+- **Discourse product forums** (`painpoint collect discourse`). Finds each forum's feature-request / idea categories
+  by name (`discourse.category_pattern`), takes the most-liked topics and keeps each opening post with its like
+  count. Avoids `/search`, which Discourse's default robots.txt disallows. Defaults: Obsidian, n8n, Bubble, Ghost,
+  Home Assistant and Cursor forums.
+
+  These three are written from each API's documented response shape and tested against fixtures, **not yet run
+  live, and their terms not yet read**: the cloud environment blocks their hosts (allow them under Network access).
+  Before the first real run, read the Stack Exchange API terms (stackoverflow.com/legal/api-terms-of-use), each
+  Lemmy instance's rules and each forum's `/tos`. Each source counts as its own community (a Lemmy community, a
+  Stack Exchange site, a forum), which is what lets a theme reach "strong" evidence.
 - **Reddit: official API via PRAW.** Needs your own app credentials. Reddit's terms govern what you may do with the
   data, especially for a commercial product, and access rules have been changing; check Reddit's current Data API
   terms (start at redditinc.com/policies) and your access before building on it. Usernames are never read or stored.
@@ -126,8 +147,8 @@ prohibited, and exported copies cannot be synced for deletions. If approval is d
   matter. That is up to ~300 posts per subreddit per run and roughly 3,000 requests in total (about 30 minutes at
   Reddit's limit), so make the first run small with `--subreddit` and `--limit`.
   If you cannot get API access, use `collect import` with data you are entitled to use, or other sources whose terms
-  allow it. Hacker News is built (above); Stack Exchange, GitHub issues/discussions and app-store reviews are ideas
-  that are not built yet, and each has its own terms to read first.
+  allow it. Hacker News, Stack Exchange, Lemmy and Discourse are built (above); GitHub issues/discussions and
+  app-store reviews are ideas that are not built yet, and each has its own terms to read first.
 - **Everything else: Scrapling** (`painpoint collect web`). Review sites, forums, directories, changelogs: define
   CSS selectors in `config.yaml` (see `config.example.yaml`). `robots.txt` is obeyed by default; Scrapling drops
   disallowed requests silently, so the CLI prints a warning with the count and another when a source yields 0 items.
@@ -198,7 +219,8 @@ posts retried), with no pipeline errors. What each run showed about report quali
 instead of failing.
 
 **Not yet run for real:** the `api` backend against the live API, live Reddit (collection, search, deletion sync and
-subreddit checks only ran against fake PRAW objects), real review sites.
+subreddit checks only ran against fake PRAW objects), the Stack Exchange, Lemmy and Discourse collectors (fixtures
+only), real review sites.
 
 ### Measured: batch size
 
@@ -226,7 +248,7 @@ your own data.
 painpoint/  config.py  db.py  schemas.py  prompts.py
             llm.py            # Anthropic API backend + shared helpers
             cc_backend.py     # Claude Code (`claude -p`) backend
-            collect/{reddit_api,hackernews,web_spider,importer,common}.py
+            collect/{reddit_api,hackernews,stackexchange,lemmy,discourse,web_spider,importer,common}.py
             extract.py  cluster.py  solutions.py  scoring.py  report.py  cli.py
 tests/      fake Anthropic client, fake `claude` executable, synthetic fixtures (tests/data.py is made up)
 ```

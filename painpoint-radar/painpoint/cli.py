@@ -125,6 +125,27 @@ def cmd_collect(args, cfg):
         print(f"hackernews: {ins} new, {skip} already stored or duplicate")
         for err in errors:
             print(f"  WARNING {err}")
+    elif args.source_type in ("stackexchange", "lemmy", "discourse"):
+        from .collect import discourse, lemmy, stackexchange
+
+        name = args.source_type
+        section = cfg[name]
+        if args.limit:
+            section["max_topics_per_category" if name == "discourse" else "max_per_query"] = args.limit
+        if getattr(args, "site", None):
+            section["sites"] = [s for s in section["sites"] if s["site"] in args.site] or [
+                {"site": s, "queries": []} for s in args.site]
+        if getattr(args, "instance", None):
+            section["instances"] = args.instance
+        if getattr(args, "forum", None):
+            section["forums"] = args.forum
+        run = {"stackexchange": stackexchange.collect_stackexchange, "lemmy": lemmy.collect_lemmy,
+               "discourse": discourse.collect_discourse}[name]
+        posts, errors = run(cfg, progress=print)
+        ins, skip = db.insert_posts(conn, posts)
+        print(f"{name}: {ins} new, {skip} already stored or duplicate")
+        for err in errors:
+            print(f"  WARNING {err}")
     elif args.source_type == "web":
         from .collect import web_spider
 
@@ -263,6 +284,15 @@ def build_parser() -> argparse.ArgumentParser:
     h.add_argument("--threads", type=int,
                    help="how many 'what problem do you have?' Ask HN threads to mine (0 = none)")
     h.add_argument("--limit", type=int, help="max hits per query (use a small number for a test run)")
+    s = csub.add_parser("stackexchange", help="Stack Exchange API (Software Recommendations, Super User, ...)")
+    s.add_argument("--site", action="append", help="repeatable, e.g. softwarerecs; defaults to config")
+    s.add_argument("--limit", type=int, help="max questions per site and phrase (small number = test run)")
+    lm = csub.add_parser("lemmy", help="Lemmy instances' public API (open Reddit-like network)")
+    lm.add_argument("--instance", action="append", help="repeatable, e.g. programming.dev; defaults to config")
+    lm.add_argument("--limit", type=int, help="max items per instance, phrase and kind (small number = test run)")
+    d = csub.add_parser("discourse", help="feature-request categories of Discourse product forums")
+    d.add_argument("--forum", action="append", help="repeatable, e.g. forum.obsidian.md; defaults to config")
+    d.add_argument("--limit", type=int, help="max topics per category (small number = test run)")
     w = csub.add_parser("web", help="Scrapling web sources from config web_sources")
     w.add_argument("--source", action="append", help="repeatable; defaults to all")
     i = csub.add_parser("import", help="import a JSONL/CSV file")

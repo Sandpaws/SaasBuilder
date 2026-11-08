@@ -131,6 +131,43 @@ DEFAULTS: dict[str, Any] = {
             "max_comments_per_thread": 150,
         },
     },
+    # Stack Exchange API. A site without queries lists its top questions (right for softwarerecs, where every
+    # question is a request for software); other sites are searched for complaint phrases.
+    "stackexchange": {
+        "key": None,                    # optional free app key (or STACKEXCHANGE_KEY): 10,000 requests/day instead of 300
+        "sites": [
+            {"site": "softwarerecs", "queries": []},
+            {"site": "webapps", "queries": ["is there a way", "alternative to", "automate"]},
+            {"site": "superuser", "queries": ["is there a tool", "is there a program", "alternative to"]},
+        ],
+        "since_days": 730,
+        "max_per_query": 200,
+        "min_score": 0,
+        "min_chars": 40,
+        "delay_s": 1.0,
+    },
+    # Lemmy: open Reddit-like network. listing_type All also returns content federated from other instances.
+    "lemmy": {
+        "instances": ["programming.dev", "lemmy.world"],
+        "queries": ["wish there was", "is there a tool", "is there an app", "looking for software",
+                    "alternative to", "frustrated with", "would pay for", "there is no good"],
+        "sort": "TopAll",
+        "listing_type": "All",
+        "since_days": 730,
+        "max_per_query": 100,           # per instance, phrase and kind (posts / comments)
+        "min_chars": 80,
+        "delay_s": 1.0,
+    },
+    # Discourse product forums: their feature-request / idea categories, found by name.
+    "discourse": {
+        "forums": ["forum.obsidian.md", "community.n8n.io", "forum.bubble.io", "forum.ghost.org",
+                   "community.home-assistant.io", "forum.cursor.com"],
+        "category_pattern": r"feature|request|idea|wish|suggest",
+        "since_days": 730,
+        "max_topics_per_category": 100,  # most liked first
+        "min_chars": 80,
+        "delay_s": 1.5,
+    },
     # Scrapling-based sources (reviews, forums, ...). See config.example.yaml.
     "web_sources": [],
     "cluster": {
